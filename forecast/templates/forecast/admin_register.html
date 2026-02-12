@@ -1,0 +1,204 @@
+{% extends 'forecast/base.html' %}
+
+{% block title %}Admin Registration - Bhoomi Puthra{% endblock %}
+
+{% block extra_css %}
+<style>
+    .main-content {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 60px 15px;
+    }
+    
+    .auth-card {
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        padding: 50px;
+        max-width: 450px;
+        width: 100%;
+        margin: 0 auto;
+    }
+    
+    .auth-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    
+    .auth-header i {
+        font-size: 4rem;
+        color: #2ecc71;
+        margin-bottom: 15px;
+    }
+    
+    .auth-header h2 {
+        color: #333;
+        margin-bottom: 10px;
+    }
+    
+    .auth-header p {
+        color: #666;
+        font-size: 0.95rem;
+    }
+    
+    .form-group {
+        margin-bottom: 20px;
+    }
+    
+    .form-label {
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 8px;
+        display: block;
+    }
+    
+    .form-control {
+        width: 100%;
+        padding: 12px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 10px;
+        font-size: 1rem;
+        transition: all 0.3s;
+    }
+    
+    .form-control:focus {
+        outline: none;
+        border-color: #2ecc71;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    .btn-submit {
+        width: 100%;
+        background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        color: white;
+        padding: 15px;
+        border: none;
+        border-radius: 10px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.3s;
+    }
+    
+    .btn-submit:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    .auth-links {
+        text-align: center;
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid #e0e0e0;
+    }
+    
+    .auth-links a {
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 600;
+    }
+    
+    .auth-links a:hover {
+        text-decoration: underline;
+    }
+    
+    .admin-badge {
+        background: #ffc107;
+        color: #333;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        display: inline-block;
+        margin-bottom: 15px;
+    }
+    
+    .secret-note {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-card">
+        <div class="auth-header">
+            <span class="admin-badge">🔒 Admin Registration</span>
+            <i class="bi bi-person-plus-fill"></i>
+            <h2>Create Admin Account</h2>
+            <p>Register as an administrator</p>
+        </div>
+
+        <div class="secret-note">
+            <strong>⚠️ Note:</strong> You need an admin secret key to register. Current key: <code>AGRI2026</code>
+        </div>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <form method="POST">
+            {% csrf_token %}
+            
+            <div class="form-group">
+                <label for="username" class="form-label">
+                    <i class="bi bi-person"></i> Username
+                </label>
+                <input type="text" class="form-control" id="username" name="username" 
+                       placeholder="Choose username" required>
+            </div>
+
+            <div class="form-group">
+                <label for="email" class="form-label">
+                    <i class="bi bi-envelope"></i> Email
+                </label>
+                <input type="email" class="form-control" id="email" name="email" 
+                       placeholder="Enter email address" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password" class="form-label">
+                    <i class="bi bi-lock"></i> Password
+                </label>
+                <input type="password" class="form-control" id="password" name="password" 
+                       placeholder="Create password" required>
+            </div>
+
+            <div class="form-group">
+                <label for="confirm_password" class="form-label">
+                    <i class="bi bi-lock-fill"></i> Confirm Password
+                </label>
+                <input type="password" class="form-control" id="confirm_password" name="confirm_password" 
+                       placeholder="Confirm password" required>
+            </div>
+
+            <div class="form-group">
+                <label for="admin_secret" class="form-label">
+                    <i class="bi bi-key-fill"></i> Admin Secret Key
+                </label>
+                <input type="text" class="form-control" id="admin_secret" name="admin_secret" 
+                       placeholder="Enter admin secret key" required>
+            </div>
+
+            <button type="submit" class="btn-submit">
+                <i class="bi bi-shield-check"></i> Create Admin Account
+            </button>
+        </form>
+
+        <div class="auth-links">
+            <p>Already have an account? <a href="{% url 'forecast:admin_login' %}">Login here</a></p>
+            <p><a href="{% url 'forecast:home' %}">← Back to Home</a></p>
+        </div>
+    </div>
+{% endblock %}

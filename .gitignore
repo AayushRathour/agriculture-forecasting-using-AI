@@ -1,0 +1,51 @@
+# Python
+*.py[cod]
+__pycache__/
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.pyc
+venv/
+env/
+ENV/
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+/media
+/staticfiles
+*.pot
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Project specific
+/media/crop_images/*
+!/media/crop_images/.gitkeep
+
+# Model files (large ML models)
+*.h5
+*.pkl
+*.joblib
+
+# Data files
+*.csv
+*.xlsx
+!EPICS DATA.xlsx
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/

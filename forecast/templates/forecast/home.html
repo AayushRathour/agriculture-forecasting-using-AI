@@ -1,0 +1,185 @@
+{% extends 'forecast/base.html' %}
+
+{% block title %}Home - Bhoomi Puthra{% endblock %}
+
+{% block extra_css %}
+<style>
+    .main-content {
+        background: #f0f4f8;
+        padding: 40px 15px;
+    }
+    
+    .home-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .welcome-section {
+        text-align: center;
+        margin-bottom: 50px;
+    }
+    
+    .welcome-section h2 {
+        color: #2d7a5e;
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 20px;
+    }
+    
+    .welcome-section p {
+        color: #6c757d;
+        font-size: 1.2rem;
+        max-width: 900px;
+        margin: 0 auto;
+    }
+    
+    .features-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 30px;
+        margin-bottom: 50px;
+    }
+    
+    .feature-card {
+        background: white;
+        border-radius: 15px;
+        padding: 40px 30px;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+        transition: transform 0.3s, box-shadow 0.3s;
+    }
+    
+    .feature-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+    }
+    
+    .feature-card .icon {
+        font-size: 4rem;
+        margin-bottom: 20px;
+    }
+    
+    .feature-card h3 {
+        color: #2d7a5e;
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 15px;
+    }
+    
+    .feature-card p {
+        color: #6c757d;
+        font-size: 1rem;
+        line-height: 1.6;
+    }
+    
+    .cta-section {
+        text-align: center;
+        margin-top: 50px;
+    }
+    
+    .btn-primary {
+        background: linear-gradient(135deg, #2d7a5e 0%, #3d9970 100%);
+        color: white;
+        padding: 18px 50px;
+        font-size: 1.3rem;
+        font-weight: 600;
+        border-radius: 50px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 15px;
+        transition: transform 0.3s, box-shadow 0.3s;
+        border: none;
+    }
+    
+    .btn-primary:hover {
+        transform: scale(1.05);
+        box-shadow: 0 8px 20px rgba(45, 122, 94, 0.4);
+        color: white;
+    }
+    
+    .arrow {
+        font-size: 1.5rem;
+        font-weight: bold;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="home-container">
+    <div class="welcome-section">
+        <h2 data-en="Welcome to Disease-Driven Crop Yield & Profit Forecasting" 
+            data-te="వ్యాధి ఆధారిత పంట దిగుబడి & లాభ అంచనా వ్యవస్థకు స్వాగతం">
+            Welcome to Disease-Driven Crop Yield & Profit Forecasting
+        </h2>
+        <p data-en="Get intelligent insights on crop health, yield prediction, and best selling time for maximum profit" 
+           data-te="పంట ఆరోగ్యం, దిగుబడి అంచనా మరియు గరిష్ట లాభం కోసం మంచి అమ్మకపు సమయం గురించి తెలివైన సమాచారం పొందండి">
+            Get intelligent insights on crop health, yield prediction, and best selling time for maximum profit
+        </p>
+    </div>
+
+    <div class="features-grid">
+        <div class="feature-card">
+            <div class="icon">🔬</div>
+            <h3 data-en="Disease Analysis" data-te="వ్యాధి విశ్లేషణ">Disease Analysis</h3>
+            <p data-en="AI-powered crop disease detection and severity assessment" 
+               data-te="AI శక్తితో పంట వ్యాధి గుర్తింపు మరియు తీవ్రత అంచనా">
+                AI-powered crop disease detection and severity assessment
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="icon">🌦️</div>
+            <h3 data-en="Weather Impact" data-te="వాతావరణ ప్రభావం">Weather Impact</h3>
+            <p data-en="Real-time weather data integration for accurate yield prediction" 
+               data-te="ఖచ్చితమైన దిగుబడి అంచనా కోసం నిజ సమయ వాతావరణ డేటా ఏకీకరణ">
+                Real-time weather data integration for accurate yield prediction
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="icon">📊</div>
+            <h3 data-en="Yield Forecast" data-te="దిగుబడి అంచనా">Yield Forecast</h3>
+            <p data-en="Predict total production considering disease and weather factors" 
+               data-te="వ్యాధి మరియు వాతావరణ కారకాలను పరిగణనలోకి తీసుకుని మొత్తం ఉత్పత్తిని అంచనా వేయండి">
+                Predict total production considering disease and weather factors
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="icon">💰</div>
+            <h3 data-en="Market Intelligence" data-te="మార్కెట్ ఇంటెలిజెన్స్">Market Intelligence</h3>
+            <p data-en="Current mandi prices and future profit predictions" 
+               data-te="ప్రస్తుత మండి ధరలు మరియు భవిష్యత్ లాభ అంచనాలు">
+                Current mandi prices and future profit predictions
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="icon">🎯</div>
+            <h3 data-en="Smart Recommendation" data-te="స్మార్ట్ సిఫార్సు">Smart Recommendation</h3>
+            <p data-en="Data-driven decision: Store or Sell Now" 
+               data-te="డేటా ఆధారిత నిర్ణయం: నిల్వ చేయండి లేదా ఇప్పుడు అమ్మండి">
+                Data-driven decision: Store or Sell Now
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="icon">🗺️</div>
+            <h3 data-en="Krishna District Focus" data-te="కృష్ణా జిల్లా దృష్టి">Krishna District Focus</h3>
+            <p data-en="Tailored for Machilipatnam, Gudivada, Vuyyur regions" 
+               data-te="మచిలీపట్నం, గుడివాడ, వుయ్యూరు ప్రాంతాలకు తగినట్లు రూపొందించబడింది">
+                Tailored for Machilipatnam, Gudivada, Vuyyur regions
+            </p>
+        </div>
+    </div>
+
+    <div class="cta-section">
+        <a href="{% url 'forecast:farmer_input' %}" class="btn-primary">
+            <span data-en="Start Forecasting" data-te="అంచనా ప్రారంభించండి">Start Forecasting</span>
+            <span class="arrow">→</span>
+        </a>
+    </div>
+</div>
+{% endblock %}

@@ -5,16 +5,10 @@ Customizes how models appear in Django admin interface
 
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Farmer, DiseaseRecord, WeatherData, MarketPrice, PredictionResult
-
-
-# ========================================
-# Admin Site Customization
-# ========================================
-
-admin.site.site_header = "Bhoomi Puthra Admin Panel"
-admin.site.site_title = "Bhoomi Puthra Admin"
-admin.site.index_title = "Krishna District Agricultural Management System"
+from .models import (
+    Farmer, DiseaseRecord, WeatherData, MarketPrice, PredictionResult,
+    PriceAlert, FavoriteCrop, Notification
+)
 
 
 # ========================================
@@ -29,10 +23,9 @@ class FarmerAdmin(admin.ModelAdmin):
         'id', 
         'village', 
         'mandal', 
-        'crop_display', 
+        'crop', 
         'acres', 
         'sowing_date',
-        'crop_age',
         'cold_storage_icon',
         'urgent_cash_icon',
         'created_at'
@@ -43,10 +36,6 @@ class FarmerAdmin(admin.ModelAdmin):
     search_fields = ['village', 'mandal', 'crop']
     
     date_hierarchy = 'created_at'
-    
-    ordering = ['-created_at']
-    
-    list_per_page = 25
     
     fieldsets = (
         ('Location Information', {
@@ -59,28 +48,6 @@ class FarmerAdmin(admin.ModelAdmin):
             'fields': ('cold_storage', 'urgent_cash')
         }),
     )
-    
-    def crop_display(self, obj):
-        """Display crop with proper name"""
-        return obj.get_crop_display()
-    crop_display.short_description = 'Crop'
-    crop_display.admin_order_field = 'crop'
-    
-    def crop_age(self, obj):
-        """Display days since sowing"""
-        days = obj.crop_age_days()
-        if days < 30:
-            color = 'green'
-        elif days < 90:
-            color = 'orange'
-        else:
-            color = 'red'
-        return format_html(
-            '<span style="color: {};">{} days</span>',
-            color,
-            days
-        )
-    crop_age.short_description = 'Age'
     
     def cold_storage_icon(self, obj):
         """Display icon for cold storage availability"""
@@ -120,10 +87,6 @@ class DiseaseRecordAdmin(admin.ModelAdmin):
     search_fields = ['disease_name', 'farmer__village', 'notes']
     
     date_hierarchy = 'detection_date'
-    
-    ordering = ['-detection_date']
-    
-    list_per_page = 25
     
     readonly_fields = ['detection_date', 'image_preview']
     
@@ -178,7 +141,7 @@ class WeatherDataAdmin(admin.ModelAdmin):
     
     list_display = [
         'id',
-        'mandal_display',
+        'mandal',
         'date',
         'temperature_display',
         'rainfall_display',
@@ -191,10 +154,6 @@ class WeatherDataAdmin(admin.ModelAdmin):
     
     date_hierarchy = 'date'
     
-    ordering = ['-date', 'mandal']
-    
-    list_per_page = 50
-    
     fieldsets = (
         ('Location & Date', {
             'fields': ('mandal', 'date')
@@ -203,12 +162,6 @@ class WeatherDataAdmin(admin.ModelAdmin):
             'fields': ('temperature', 'rainfall', 'humidity')
         }),
     )
-    
-    def mandal_display(self, obj):
-        """Display mandal with proper name"""
-        return obj.get_mandal_display()
-    mandal_display.short_description = 'Mandal'
-    mandal_display.admin_order_field = 'mandal'
     
     def temperature_display(self, obj):
         """Format temperature with unit"""
@@ -236,7 +189,7 @@ class MarketPriceAdmin(admin.ModelAdmin):
     
     list_display = [
         'id',
-        'crop_display',
+        'crop',
         'region',
         'price_display',
         'date',
@@ -249,10 +202,6 @@ class MarketPriceAdmin(admin.ModelAdmin):
     
     date_hierarchy = 'date'
     
-    ordering = ['-date', 'crop']
-    
-    list_per_page = 50
-    
     fieldsets = (
         ('Crop & Location', {
             'fields': ('crop', 'region')
@@ -261,12 +210,6 @@ class MarketPriceAdmin(admin.ModelAdmin):
             'fields': ('price_per_quintal', 'date', 'is_peak_season')
         }),
     )
-    
-    def crop_display(self, obj):
-        """Display crop with proper name"""
-        return obj.get_crop_display()
-    crop_display.short_description = 'Crop'
-    crop_display.admin_order_field = 'crop'
     
     def price_display(self, obj):
         """Format price with currency"""
@@ -307,10 +250,6 @@ class PredictionResultAdmin(admin.ModelAdmin):
     search_fields = ['farmer__village', 'farmer__crop']
     
     date_hierarchy = 'generated_at'
-    
-    ordering = ['-generated_at']
-    
-    list_per_page = 25
     
     readonly_fields = ['generated_at', 'profit_percentage_display']
     
@@ -371,3 +310,101 @@ class PredictionResultAdmin(admin.ModelAdmin):
             percentage
         )
     profit_percentage_display.short_description = 'Profit Increase %'
+
+
+# ========================================
+# Price Alert Admin
+# ========================================
+
+@admin.register(PriceAlert)
+class PriceAlertAdmin(admin.ModelAdmin):
+    """Admin interface for Price Alert model"""
+    
+    list_display = [
+        'id',
+        'user',
+        'crop',
+        'target_price',
+        'status_badge',
+        'created_at',
+        'triggered_at'
+    ]
+    
+    list_filter = ['crop', 'is_active', 'is_triggered', 'created_at']
+    
+    search_fields = ['user__username', 'crop']
+    
+    date_hierarchy = 'created_at'
+    
+    def status_badge(self, obj):
+        """Display status with color coding"""
+        if obj.is_triggered:
+            return format_html(
+                '<span style="background-color: green; color: white; padding: 3px 10px; border-radius: 3px;">✓ Triggered</span>'
+            )
+        elif obj.is_active:
+            return format_html(
+                '<span style="background-color: blue; color: white; padding: 3px 10px; border-radius: 3px;">● Active</span>'
+            )
+        else:
+            return format_html(
+                '<span style="background-color: gray; color: white; padding: 3px 10px; border-radius: 3px;">○ Inactive</span>'
+            )
+    status_badge.short_description = 'Status'
+
+
+# ========================================
+# Favorite Crop Admin
+# ========================================
+
+@admin.register(FavoriteCrop)
+class FavoriteCropAdmin(admin.ModelAdmin):
+    """Admin interface for Favorite Crop model"""
+    
+    list_display = ['id', 'user', 'crop', 'added_at']
+    
+    list_filter = ['crop', 'added_at']
+    
+    search_fields = ['user__username', 'crop']
+    
+    date_hierarchy = 'added_at'
+
+
+# ========================================
+# Notification Admin
+# ========================================
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    """Admin interface for Notification model"""
+    
+    list_display = [
+        'id',
+        'user',
+        'notification_type',
+        'title',
+        'read_badge',
+        'created_at',
+        'read_at'
+    ]
+    
+    list_filter = ['notification_type', 'is_read', 'created_at']
+    
+    search_fields = ['user__username', 'title', 'message']
+    
+    date_hierarchy = 'created_at'
+    
+    readonly_fields = ['created_at', 'read_at']
+    
+    def read_badge(self, obj):
+        """Display read status with color coding"""
+        if obj.is_read:
+            return format_html(
+                '<span style="background-color: gray; color: white; padding: 3px 10px; border-radius: 3px;">✓ Read</span>'
+            )
+        else:
+            return format_html(
+                '<span style="background-color: orange; color: white; padding: 3px 10px; border-radius: 3px;">● Unread</span>'
+            )
+    read_badge.short_description = 'Status'
+

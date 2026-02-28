@@ -1,6 +1,6 @@
 """
 Views for the forecast app
-Handles all the logic for crop forecasting system
+Handles all the logic for crop forecasting system with ML/AI models
 """
 
 from django.shortcuts import render, redirect
@@ -9,11 +9,48 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.models import User
 from django.views.generic import TemplateView
-from .models import Farmer, DiseaseRecord, WeatherData, MarketPrice, PredictionResult
+from django.utils import timezone
+from django.db import models
+from .models import (
+    Farmer, DiseaseRecord, WeatherData, MarketPrice, PredictionResult,
+    CROP_CHOICES
+)
 from datetime import datetime, timedelta
 from django.db.models import Count, Avg
 import json
 import random
+import os
+
+# Import ML models
+from .ml_models.disease_detector import DiseaseDetector
+from .ml_models.yield_predictor import YieldPredictor
+from .ml_models.price_predictor import PricePredictor
+
+# Initialize ML models (singleton pattern)
+_disease_detector = None
+_yield_predictor = None
+_price_predictor = None
+
+def get_disease_detector():
+    """Get or create disease detector instance"""
+    global _disease_detector
+    if _disease_detector is None:
+        _disease_detector = DiseaseDetector()
+    return _disease_detector
+
+def get_yield_predictor():
+    """Get or create yield predictor instance"""
+    global _yield_predictor
+    if _yield_predictor is None:
+        _yield_predictor = YieldPredictor()
+    return _yield_predictor
+
+def get_price_predictor():
+    """Get or create price predictor instance"""
+    global _price_predictor
+    if _price_predictor is None:
+        _price_predictor = PricePredictor()
+    return _price_predictor
 
 
 # ========================================
@@ -152,20 +189,30 @@ def predict_market_price(crop_type, region='Vijayawada'):
         ).order_by('-date').first()
         
         if not latest_price:
-            # Return default values if no price data found
-            return {
-                'current_price': 0,
-                'predicted_peak_price': 0,
-                'increase_percentage': 0,
-                'best_selling_start': None,
-                'best_selling_end': None,
-                'recommendation': 'No market price data available for this crop.',
-                'price_date': None,
-                'error': True
+            # Use fallback prices so recommendation flow still works
+            fallback_prices = {
+                'paddy': 2200,
+                'mango': 3200,
+                'chillies': 9000,
+                'cotton': 7200,
+                'turmeric': 9500,
+                'sugarcane': 350,
+                'banana': 1800,
+                'tomato': 1400,
+                'okra': 2200,
+                'brinjal': 2000,
+                'maize': 2100,
+                'groundnut': 6200,
+                'sunflower': 6000,
+                'tobacco': 7800,
             }
-        
-        current_price = latest_price.price_per_quintal
-        price_date = latest_price.date
+            current_price = float(fallback_prices.get(crop_type.lower(), 2500))
+            price_date = datetime.now().date()
+            using_fallback_price = True
+        else:
+            current_price = latest_price.price_per_quintal
+            price_date = latest_price.date
+            using_fallback_price = False
         
     except Exception as e:
         return {
@@ -238,15 +285,21 @@ def predict_market_price(crop_type, region='Vijayawada'):
         best_selling_end = best_selling_start + timedelta(days=10)
         recommendation = f"Good time to sell! Off-season prices are favorable. Sell within {days_to_sell}-{days_to_sell+10} days."
     
+    if using_fallback_price:
+        recommendation = (
+            recommendation +
+            " Market price is estimated due to unavailable mandi data for this crop."
+        )
+
     # Step 4: Return complete prediction
     return {
         'current_price': round(current_price, 2),
         'predicted_peak_price': predicted_peak_price,
         'increase_percentage': increase_percentage,
-        'best_selling_start': best_selling_start.strftime('%Y-%m-%d'),
-        'best_selling_end': best_selling_end.strftime('%Y-%m-%d'),
+        'best_selling_start': best_selling_start.date(),
+        'best_selling_end': best_selling_end.date(),
         'recommendation': recommendation,
-        'price_date': price_date.strftime('%Y-%m-%d'),
+        'price_date': price_date,
         'error': False
     }
 
@@ -380,6 +433,16 @@ def home(request):
     context = {
         'page': 'home'
     }
+    
+    # Add user stats for authenticated users
+    if request.user.is_authenticated:
+        from .models import PriceAlert, FavoriteCrop, Notification
+        
+        context['total_submissions'] = Farmer.objects.filter(user=request.user).count()
+        context['active_alerts'] = PriceAlert.objects.filter(user=request.user, is_active=True, is_triggered=False).count()
+        context['favorite_crops_count'] = FavoriteCrop.objects.filter(user=request.user).count()
+        context['unread_notifications'] = Notification.objects.filter(user=request.user, is_read=False).count()
+    
     return render(request, 'forecast/home.html', context)
 
 
@@ -398,6 +461,7 @@ def input_form(request):
 def result(request):
     """
     Result view - Shows forecast results after farmer submission
+    Uses ML models for predictions
     """
     farmer_id = request.session.get('farmer_id')
     
@@ -409,9 +473,6 @@ def result(request):
         farmer = Farmer.objects.get(id=farmer_id)
         disease_record = DiseaseRecord.objects.filter(farmer=farmer).first()
         
-        # Get price prediction for the farmer's crop
-        price_prediction = predict_market_price(farmer.crop)
-        
         # Get weather data for yield prediction
         weather_data = WeatherData.objects.filter(mandal=farmer.mandal).order_by('-date').first()
         
@@ -420,22 +481,48 @@ def result(request):
         temperature = weather_data.temperature if weather_data else 28.0
         humidity = weather_data.humidity if weather_data else 70.0
         
-        # Get disease severity
+        # Get disease information
         disease_severity = disease_record.severity if disease_record else 'low'
+        disease_yield_loss = disease_record.yield_loss_percentage if disease_record else 0
         
-        # Calculate yield prediction
-        yield_prediction = predict_crop_yield(
+        # Calculate crop age
+        crop_age_days = farmer.crop_age_days()
+        
+        # === ML-BASED YIELD PREDICTION ===
+        yield_predictor = get_yield_predictor()
+        yield_prediction = yield_predictor.predict(
             crop_type=farmer.crop,
             acres=farmer.acres,
             rainfall=rainfall,
             temperature=temperature,
             humidity=humidity,
-            disease_severity=disease_severity
+            disease_severity=disease_severity,
+            disease_yield_loss=disease_yield_loss,
+            crop_age_days=crop_age_days,
+            soil_quality='medium',  # Default, can be added to form
+            irrigation='moderate'   # Default, can be added to form
         )
         
-        # Calculate selling recommendation
+        # === ML-BASED PRICE PREDICTION ===
+        # Get current price from database
+        latest_price = MarketPrice.objects.filter(
+            crop=farmer.crop.lower()
+        ).order_by('-date').first()
+        
+        current_price = latest_price.price_per_quintal if latest_price else None
+        
+        price_predictor = get_price_predictor()
+        price_prediction = price_predictor.predict(
+            crop_type=farmer.crop,
+            current_price=current_price,
+            region='Vijayawada',
+            supply_level='normal',  # Can be enhanced with real data
+            demand_level='normal'   # Can be enhanced with real data
+        )
+        
+        # === SELLING RECOMMENDATION ===
         selling_recommendation = None
-        if not price_prediction.get('error') and yield_prediction:
+        if yield_prediction and price_prediction:
             selling_recommendation = calculate_selling_recommendation(
                 predicted_yield=yield_prediction['predicted_yield'],
                 current_price=price_prediction['current_price'],
@@ -444,14 +531,20 @@ def result(request):
                 urgent_cash_needed=farmer.urgent_cash
             )
         
-        # Save PredictionResult to database
-        if yield_prediction and not price_prediction.get('error') and selling_recommendation:
+        # === SAVE PREDICTION RESULT ===
+        if yield_prediction and price_prediction and selling_recommendation:
             # Parse peak price date
             peak_date = None
             if price_prediction.get('best_selling_start'):
                 try:
-                    peak_date = datetime.strptime(price_prediction['best_selling_start'], '%Y-%m-%d').date()
-                except:
+                    start_value = price_prediction['best_selling_start']
+                    if isinstance(start_value, datetime):
+                        peak_date = start_value.date()
+                    elif isinstance(start_value, str):
+                        peak_date = datetime.strptime(start_value, '%Y-%m-%d').date()
+                    else:
+                        peak_date = start_value
+                except Exception:
                     peak_date = None
             
             # Calculate yield reduction percentage
@@ -459,12 +552,12 @@ def result(request):
             if yield_prediction.get('base_yield', 0) > 0:
                 yield_reduction = ((yield_prediction['base_yield'] - yield_prediction['predicted_yield']) / yield_prediction['base_yield']) * 100
             
-            # Calculate confidence score based on available data
-            confidence = 70.0  # Base confidence
+            # Calculate confidence score
+            base_confidence = yield_prediction.get('confidence', 70.0)
             if weather_data:
-                confidence += 15.0  # Boost if real weather data available
+                base_confidence = min(base_confidence + 5.0, 95.0)
             if disease_record:
-                confidence += 15.0  # Boost if disease data available
+                base_confidence = min(base_confidence + 5.0, 95.0)
             
             # Create or update PredictionResult
             prediction_result, created = PredictionResult.objects.update_or_create(
@@ -480,7 +573,7 @@ def result(request):
                     'profit_delta': selling_recommendation['profit_delta'],
                     'recommendation': selling_recommendation['recommendation'],
                     'recommendation_reason': selling_recommendation['reason'],
-                    'confidence_score': confidence,
+                    'confidence_score': base_confidence,
                 }
             )
         
@@ -547,6 +640,7 @@ def farmer_input(request):
             
             # Create Farmer record
             farmer = Farmer.objects.create(
+                user=request.user if request.user.is_authenticated else None,
                 mandal=mandal,
                 village=village,
                 crop=crop,
@@ -568,23 +662,46 @@ def farmer_input(request):
                     messages.error(request, 'Invalid image format. Please upload JPG, JPEG, PNG, or GIF.')
                     return redirect('forecast:farmer_input')
                 
-                # Get disease severity from form (optional)
-                severity = request.POST.get('severity', 'low').lower()
-                if severity not in ['low', 'medium', 'high']:
-                    severity = 'low'
-                
-                # Calculate yield loss based on severity
-                yield_loss = calculate_yield_loss(severity)
-                
-                # Create disease record with image
-                DiseaseRecord.objects.create(
+                # First save the image temporarily to analyze it
+                disease_record = DiseaseRecord.objects.create(
                     farmer=farmer,
                     image=crop_image,
-                    severity=severity,
-                    yield_loss_percentage=yield_loss,
-                    detection_date=datetime.now().date(),
-                    disease_name=request.POST.get('disease_name', 'Pending AI Analysis')
+                    severity='low',  # Will be updated by ML model
+                    yield_loss_percentage=0,  # Will be updated by ML model
+                    detection_date=datetime.now(),
+                    disease_name='Analyzing...'
                 )
+                
+                # Use ML model to detect disease
+                try:
+                    detector = get_disease_detector()
+                    detection_result = detector.predict(
+                        disease_record.image.path,
+                        crop_type=crop
+                    )
+                    
+                    # Update disease record with ML predictions
+                    disease_record.disease_name = detection_result['disease_name']
+                    disease_record.severity = detection_result['severity']
+                    disease_record.yield_loss_percentage = detection_result['yield_loss']
+                    disease_record.notes = (
+                        f"ML Detection (Confidence: {detection_result['confidence']:.1f}%)\n"
+                        f"Method: {detection_result['method']}\n"
+                        f"Detected: {detection_result['disease_name']}"
+                    )
+                    disease_record.save()
+                    
+                except Exception as e:
+                    # Fall back to manual severity if ML fails
+                    severity = request.POST.get('severity', 'medium').lower()
+                    if severity not in ['low', 'medium', 'high']:
+                        severity = 'medium'
+                    
+                    disease_record.severity = severity
+                    disease_record.yield_loss_percentage = calculate_yield_loss(severity)
+                    disease_record.disease_name = 'Unknown (ML Analysis Failed)'
+                    disease_record.notes = f'ML detection error: {str(e)}'
+                    disease_record.save()
             
             messages.success(request, 'Farmer data submitted successfully! Analyzing your crop...')
             
@@ -661,7 +778,10 @@ def admin_register(request):
         admin_secret = request.POST.get('admin_secret')
         
         # Simple secret key check (you can change this)
-        if admin_secret != 'AGRI2026':
+        admin_secret = request.POST.get('admin_secret')
+        expected_secret = os.environ.get('ADMIN_SECRET_KEY', 'AGRI2026')
+        
+        if admin_secret != expected_secret:
             messages.error(request, 'Invalid admin secret key!')
             return render(request, 'forecast/admin_register.html')
         
@@ -688,32 +808,520 @@ def admin_register(request):
     return render(request, 'forecast/admin_register.html')
 
 
+# ========================================
+# ENHANCED USER FEATURES
+# ========================================
+
+@login_required(login_url='/login/')
+def crop_comparison(request):
+    """Compare multiple crops performance for the user - Optimized version"""
+    from django.db.models import Avg, Sum, Count, Q
+    import json
+    
+    # Optimized query - fetch all user's farmer records with predictions in one go
+    user_farmers = Farmer.objects.filter(user=request.user).select_related('user')
+    
+    if not user_farmers.exists():
+        context = {
+            'comparison_data': [],
+            'chart_json': json.dumps({'labels': [], 'yields': [], 'profits': []}),
+        }
+        return render(request, 'forecast/crop_comparison.html', context)
+    
+    # Get predictions with select_related to minimize queries
+    farmer_ids = list(user_farmers.values_list('id', flat=True))
+    predictions = PredictionResult.objects.filter(
+        farmer_id__in=farmer_ids
+    ).select_related('farmer')
+    
+    # Group data by crop
+    crop_data = {}
+    for farmer in user_farmers:
+        crop = farmer.crop
+        if crop not in crop_data:
+            crop_data[crop] = {
+                'farmers': [],
+                'predictions': []
+            }
+        crop_data[crop]['farmers'].append(farmer)
+    
+    for prediction in predictions:
+        crop = prediction.farmer.crop
+        if crop in crop_data:
+            crop_data[crop]['predictions'].append(prediction)
+    
+    # Calculate statistics
+    comparison_data = []
+    for crop, data in crop_data.items():
+        farmers_list = data['farmers']
+        predictions_list = data['predictions']
+        
+        total_acres = sum(f.acres for f in farmers_list)
+        total_yield = sum(p.predicted_yield for p in predictions_list) if predictions_list else 0
+        avg_yield = total_yield / len(predictions_list) if predictions_list else 0
+        
+        total_current_value = sum(p.total_current_value for p in predictions_list if p.total_current_value) if predictions_list else 0
+        avg_current_value = total_current_value / len(predictions_list) if predictions_list else 0
+        
+        total_profit = sum(p.profit_delta for p in predictions_list if p.profit_delta) if predictions_list else 0
+        
+        stats = {
+            'crop': crop,
+            'crop_display': dict(CROP_CHOICES).get(crop, crop),
+            'total_submissions': len(farmers_list),
+            'total_acres': total_acres,
+            'avg_yield': avg_yield,
+            'total_yield': total_yield,
+            'avg_current_value': avg_current_value,
+            'total_profit': total_profit,
+        }
+        comparison_data.append(stats)
+    
+    # Sort by total submissions (most active crops first)
+    comparison_data.sort(key=lambda x: x['total_submissions'], reverse=True)
+    
+    # Chart data for visualization
+    chart_data = {
+        'labels': [item['crop_display'] for item in comparison_data],
+        'yields': [round(float(item['avg_yield']), 2) for item in comparison_data],
+        'profits': [round(float(item['total_profit']), 2) for item in comparison_data],
+    }
+    
+    context = {
+        'comparison_data': comparison_data,
+        'chart_json': json.dumps(chart_data),
+    }
+    
+    return render(request, 'forecast/crop_comparison.html', context)
+
+
+@login_required(login_url='/login/')
+def historical_analysis(request):
+    """View historical trends and analysis for user's farming data - Optimized version"""
+    from django.db.models import Avg, Sum
+    from datetime import datetime, timedelta
+    import json
+    
+    # Get data from last 12 months
+    one_year_ago = timezone.now() - timedelta(days=365)
+    
+    # Optimized query - fetch all user's farmers with select_related
+    user_farmers = Farmer.objects.filter(
+        user=request.user,
+        created_at__gte=one_year_ago
+    ).select_related('user').order_by('created_at')
+    
+    if not user_farmers.exists():
+        context = {
+            'monthly_stats': {},
+            'chart_json': json.dumps({'labels': [], 'submissions': [], 'acres': [], 'yields': []}),
+        }
+        return render(request, 'forecast/historical_analysis.html', context)
+    
+    # Fetch all predictions for these farmers in one query
+    farmer_ids = list(user_farmers.values_list('id', flat=True))
+    predictions_map = {}
+    predictions = PredictionResult.objects.filter(farmer_id__in=farmer_ids).select_related('farmer')
+    for pred in predictions:
+        predictions_map[pred.farmer_id] = pred
+    
+    # Monthly statistics - optimized calculation
+    monthly_stats = {}
+    for farmer in user_farmers:
+        month_key = farmer.created_at.strftime('%Y-%m')
+        if month_key not in monthly_stats:
+            monthly_stats[month_key] = {
+                'submissions': 0,
+                'total_acres': 0,
+                'total_yield': 0,
+            }
+        monthly_stats[month_key]['submissions'] += 1
+        monthly_stats[month_key]['total_acres'] += farmer.acres
+        
+        # Add yield if prediction exists (from pre-fetched map)
+        prediction = predictions_map.get(farmer.id)
+        if prediction:
+            monthly_stats[month_key]['total_yield'] += prediction.predicted_yield
+    
+    # Prepare chart data
+    months = sorted(monthly_stats.keys())
+    chart_data = {
+        'labels': months,
+        'submissions': [monthly_stats[m]['submissions'] for m in months],
+        'acres': [float(monthly_stats[m]['total_acres']) for m in months],
+        'yields': [float(monthly_stats[m]['total_yield']) for m in months],
+    }
+    
+    context = {
+        'monthly_stats': monthly_stats,
+        'chart_json': json.dumps(chart_data),
+    }
+    
+    return render(request, 'forecast/historical_analysis.html', context)
+
+
+@login_required(login_url='/login/')
+def export_data(request, format='pdf'):
+    """Export user's farming data to PDF or CSV"""
+    from django.http import HttpResponse
+    import csv
+    from io import BytesIO
+    
+    user_farmers = Farmer.objects.filter(user=request.user).order_by('-created_at')
+    
+    if format == 'csv':
+        # CSV Export
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="agri_forecast_data_{timezone.now().strftime("%Y%m%d")}.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow(['Date', 'Mandal', 'Village', 'Crop', 'Acres', 'Sowing Date', 
+                        'Disease', 'Severity', 'Predicted Yield', 'Current Price', 
+                        'Peak Price', 'Recommendation'])
+        
+        for farmer in user_farmers:
+            try:
+                disease = DiseaseRecord.objects.filter(farmer=farmer).first()
+                prediction = PredictionResult.objects.get(farmer=farmer)
+                
+                writer.writerow([
+                    farmer.created_at.strftime('%Y-%m-%d'),
+                    farmer.get_mandal_display(),
+                    farmer.village,
+                    farmer.get_crop_display(),
+                    farmer.acres,
+                    farmer.sowing_date,
+                    disease.disease_name if disease else 'None',
+                    disease.get_severity_display() if disease else '-',
+                    f"{prediction.predicted_yield:.2f}",
+                    f"₹{prediction.current_market_price:.2f}",
+                    f"₹{prediction.predicted_peak_price:.2f}",
+                    prediction.get_recommendation_display(),
+                ])
+            except PredictionResult.DoesNotExist:
+                writer.writerow([
+                    farmer.created_at.strftime('%Y-%m-%d'),
+                    farmer.get_mandal_display(),
+                    farmer.village,
+                    farmer.get_crop_display(),
+                    farmer.acres,
+                    farmer.sowing_date,
+                    '-', '-', '-', '-', '-', 'No Prediction'
+                ])
+        
+        return response
+    
+    elif format == 'pdf':
+        # Simple PDF Export (using HTML to PDF would need reportlab or weasyprint)
+        # For now, return HTML that can be printed as PDF
+        context = {
+            'farmers': user_farmers,
+            'export_date': timezone.now(),
+        }
+        response = render(request, 'forecast/export_pdf.html', context)
+        response['Content-Disposition'] = f'attachment; filename="agri_forecast_report_{timezone.now().strftime("%Y%m%d")}.html"'
+        return response
+    
+    else:
+        messages.error(request, 'Invalid export format')
+        return redirect('forecast:user_profile')
+
+
+@login_required(login_url='/login/')
+@user_passes_test(lambda u: u.is_staff, login_url='/login/')
+def price_alerts(request):
+    """Manage price alerts for crops - ADMIN ONLY"""
+    from .models import PriceAlert
+    
+    if request.method == 'POST':
+        crop = request.POST.get('crop')
+        target_price = request.POST.get('target_price')
+        
+        if crop and target_price:
+            try:
+                target_price = float(target_price)
+                PriceAlert.objects.create(
+                    user=request.user,
+                    crop=crop,
+                    target_price=target_price
+                )
+                messages.success(request, f'Price alert set for {dict(CROP_CHOICES)[crop]} at ₹{target_price}/Q')
+            except ValueError:
+                messages.error(request, 'Invalid price value')
+        else:
+            messages.error(request, 'Please provide crop and target price')
+        
+        return redirect('forecast:price_alerts')
+    
+    # GET request - show alerts
+    active_alerts = PriceAlert.objects.filter(
+        user=request.user,
+        is_active=True,
+        is_triggered=False
+    ).order_by('-created_at')
+    
+    triggered_alerts = PriceAlert.objects.filter(
+        user=request.user,
+        is_triggered=True
+    ).order_by('-triggered_at')[:10]
+    
+    context = {
+        'active_alerts': active_alerts,
+        'triggered_alerts': triggered_alerts,
+        'crop_choices': CROP_CHOICES,
+    }
+    
+    return render(request, 'forecast/price_alerts.html', context)
+
+
+@login_required(login_url='/login/')
+def delete_alert(request, alert_id):
+    """Delete a price alert"""
+    from .models import PriceAlert
+    
+    try:
+        alert = PriceAlert.objects.get(id=alert_id, user=request.user)
+        alert.delete()
+        messages.success(request, 'Price alert deleted successfully')
+    except PriceAlert.DoesNotExist:
+        messages.error(request, 'Alert not found')
+    
+    return redirect('forecast:price_alerts')
+
+
+@login_required(login_url='/login/')
+def toggle_favorite(request, crop):
+    """Add or remove crop from favorites"""
+    from .models import FavoriteCrop
+    
+    try:
+        favorite = FavoriteCrop.objects.get(user=request.user, crop=crop)
+        favorite.delete()
+        messages.success(request, f'{dict(CROP_CHOICES)[crop]} removed from favorites')
+    except FavoriteCrop.DoesNotExist:
+        FavoriteCrop.objects.create(user=request.user, crop=crop)
+        messages.success(request, f'{dict(CROP_CHOICES)[crop]} added to favorites')
+    
+    return redirect(request.META.get('HTTP_REFERER', 'forecast:user_profile'))
+
+
+@login_required(login_url='/login/')
+def notifications(request):
+    """View and manage notifications"""
+    from .models import Notification
+    
+    # Mark specific notification as read
+    if request.method == 'POST':
+        notification_id = request.POST.get('notification_id')
+        if notification_id:
+            try:
+                notification = Notification.objects.get(id=notification_id, user=request.user)
+                notification.is_read = True
+                notification.read_at = timezone.now()
+                notification.save()
+            except Notification.DoesNotExist:
+                pass
+        return redirect('forecast:notifications')
+    
+    # GET - show all notifications
+    all_notifications = Notification.objects.filter(user=request.user).order_by('-created_at')
+    unread_count = all_notifications.filter(is_read=False).count()
+    
+    context = {
+        'notifications': all_notifications,
+        'unread_count': unread_count,
+    }
+    
+    return render(request, 'forecast/notifications.html', context)
+
+
+@login_required(login_url='/login/')
+def mark_all_read(request):
+    """Mark all notifications as read"""
+    from .models import Notification
+    
+    Notification.objects.filter(user=request.user, is_read=False).update(
+        is_read=True,
+        read_at=timezone.now()
+    )
+    messages.success(request, 'All notifications marked as read')
+    return redirect('forecast:notifications')
+
+
+@login_required(login_url='/login/')
+def crop_recommendations(request):
+    """Get AI-powered crop recommendations based on user's history - Optimized version"""
+    from django.db.models import Avg, Count, Sum
+    from .models import Notification
+    import json
+    
+    # Optimized query - analyze user's historical data
+    user_crops = Farmer.objects.filter(user=request.user).values('crop').annotate(
+        count=Count('id'),
+        avg_profit=Avg('prediction__profit_delta'),
+        total_yield=Sum('prediction__predicted_yield'),
+        success_rate=Count('prediction__recommendation', filter=models.Q(prediction__recommendation='store'))
+    ).order_by('-avg_profit')[:5]  # Limit to top 5
+    
+    # Get best performing crop
+    best_crop = user_crops.first() if user_crops else None
+    
+    # Optimized mandal-wise performance query
+    mandal_performance = Farmer.objects.filter(user=request.user).values('mandal').annotate(
+        avg_yield=Avg('prediction__predicted_yield'),
+        count=Count('id')
+    ).order_by('-avg_yield')[:5]  # Limit to top 5
+    
+    # Generate recommendations
+    recommendations = []
+    
+    if best_crop and best_crop['avg_profit']:
+        crop_name = dict(CROP_CHOICES).get(best_crop['crop'], best_crop['crop'])
+        recommendations.append({
+            'title': f"Continue Growing {crop_name}",
+            'reason': f"Your average profit: ₹{best_crop['avg_profit']:.2f} per submission",
+            'confidence': 85,
+        })
+    
+    # Season-based recommendations
+    current_month = timezone.now().month
+    if 6 <= current_month <= 9:  # Monsoon season
+        recommendations.append({
+            'title': 'Ideal for Paddy Cultivation',
+            'reason': 'Monsoon season - High rainfall expected',
+            'confidence': 90,
+        })
+    elif 10 <= current_month <= 2:  # Winter season
+        recommendations.append({
+            'title': 'Consider Chillies or Turmeric',
+            'reason': 'Winter season - Good for spice crops',
+            'confidence': 80,
+        })
+    else:  # Summer season (March-May)
+        recommendations.append({
+            'title': 'Summer Crops Recommended',
+            'reason': 'Consider heat-tolerant crops like cotton or groundnut',
+            'confidence': 75,
+        })
+    
+    # Create notification for recommendations (only once per day)
+    if recommendations and not Notification.objects.filter(
+        user=request.user,
+        notification_type='recommendation',
+        created_at__date=timezone.now().date()
+    ).exists():
+        Notification.objects.create(
+            user=request.user,
+            notification_type='recommendation',
+            title='New Crop Recommendations Available',
+            message=f'We have {len(recommendations)} new recommendations based on your farming history'
+        )
+    
+    context = {
+        'recommendations': recommendations,
+        'user_crops': user_crops,
+        'mandal_performance': mandal_performance,
+        'best_crop': best_crop,
+    }
+    
+    return render(request, 'forecast/crop_recommendations.html', context)
+
+
 # Admin Dashboard View
 @user_passes_test(is_admin, login_url='/af-admin/login/')
 def admin_dashboard(request):
+    """Enhanced admin dashboard with comprehensive statistics and management links"""
+    from django.db.models import Sum, Avg, Max, Min
+    
     # Get statistics
     total_farmers = Farmer.objects.count()
     total_diseases = DiseaseRecord.objects.count()
     total_weather = WeatherData.objects.count()
     total_prices = MarketPrice.objects.count()
+    total_users = User.objects.count()
+    total_predictions = PredictionResult.objects.count()
     
-    # Recent farmers
-    recent_farmers = Farmer.objects.order_by('-id')[:10]
+    # User statistics
+    total_admins = User.objects.filter(is_staff=True).count()
+    total_regular_users = User.objects.filter(is_staff=False).count()
+    active_users = User.objects.filter(is_active=True).count()
+    
+    # Recent farmers (last 10)
+    recent_farmers = Farmer.objects.select_related('user').order_by('-created_at')[:10]
+    
+    # Recent predictions (last 10)
+    recent_predictions = PredictionResult.objects.select_related('farmer').order_by('-generated_at')[:10]
     
     # Crop distribution
-    crop_stats = Farmer.objects.values('crop').annotate(count=Count('id'))
+    crop_stats = Farmer.objects.values('crop').annotate(
+        count=Count('id'),
+        total_acres=Sum('acres')
+    ).order_by('-count')
     
     # Mandal distribution
-    mandal_stats = Farmer.objects.values('mandal').annotate(count=Count('id'))
+    mandal_stats = Farmer.objects.values('mandal').annotate(
+        count=Count('id'),
+        total_acres=Sum('acres')
+    ).order_by('-count')
+    
+    # Disease severity distribution
+    severity_stats = DiseaseRecord.objects.values('severity').annotate(
+        count=Count('id')
+    )
+    
+    # Recommendation distribution
+    recommendation_stats = PredictionResult.objects.values('recommendation').annotate(
+        count=Count('id')
+    )
+    
+    # Monthly farmer registrations (last 6 months)
+    from datetime import datetime, timedelta
+    six_months_ago = datetime.now() - timedelta(days=180)
+    monthly_farmers = Farmer.objects.filter(
+        created_at__gte=six_months_ago
+    ).values('created_at__month').annotate(count=Count('id'))
+    
+    # Average yield prediction
+    avg_yield = PredictionResult.objects.aggregate(
+        avg_predicted_yield=Avg('predicted_yield'),
+        max_yield=Max('predicted_yield'),
+        min_yield=Min('predicted_yield')
+    )
+    
+    # Storage & cash statistics
+    farmers_with_storage = Farmer.objects.filter(cold_storage=True).count()
+    farmers_urgent_cash = Farmer.objects.filter(urgent_cash=True).count()
     
     context = {
+        # Basic counts
         'total_farmers': total_farmers,
         'total_diseases': total_diseases,
         'total_weather': total_weather,
         'total_prices': total_prices,
+        'total_users': total_users,
+        'total_predictions': total_predictions,
+        
+        # User stats
+        'total_admins': total_admins,
+        'total_regular_users': total_regular_users,
+        'active_users': active_users,
+        
+        # Recent data
         'recent_farmers': recent_farmers,
+        'recent_predictions': recent_predictions,
+        
+        # Distribution stats
         'crop_stats': crop_stats,
         'mandal_stats': mandal_stats,
+        'severity_stats': severity_stats,
+        'recommendation_stats': recommendation_stats,
+        
+        # Additional stats
+        'avg_yield': avg_yield,
+        'farmers_with_storage': farmers_with_storage,
+        'farmers_urgent_cash': farmers_urgent_cash,
+        'percentage_storage': round((farmers_with_storage / total_farmers * 100), 1) if total_farmers > 0 else 0,
+        'percentage_urgent_cash': round((farmers_urgent_cash / total_farmers * 100), 1) if total_farmers > 0 else 0,
     }
     
     return render(request, 'forecast/admin_dashboard.html', context)
@@ -780,11 +1388,83 @@ def user_logout(request):
 # User Profile View
 @login_required(login_url='/login/')
 def user_profile(request):
-    # Get all farmer submissions (since Farmer model doesn't track user relationship)
-    user_farmers = Farmer.objects.all().order_by('-id')[:10]
+    """Enhanced user dashboard with comprehensive statistics"""
+    from django.db.models import Count, Avg, Sum, Q
+    from .models import PriceAlert, FavoriteCrop, Notification
+    import json
+    from datetime import timedelta
+    
+    # Get farmer submissions for current user
+    user_farmers = Farmer.objects.filter(
+        user=request.user
+    ).order_by('-created_at')[:20]
+    
+    # Get predictions for user's farmers
+    user_predictions = PredictionResult.objects.filter(
+        farmer__user=request.user
+    ).order_by('-generated_at')[:10]
+    
+    # Calculate statistics
+    total_submissions = Farmer.objects.filter(user=request.user).count()
+    total_predictions = PredictionResult.objects.filter(farmer__user=request.user).count()
+    
+    # Crop wise statistics
+    crop_stats = Farmer.objects.filter(user=request.user).values('crop').annotate(
+        count=Count('id'),
+        avg_acres=Avg('acres')
+    ).order_by('-count')
+    
+    # Recent disease records
+    recent_diseases = DiseaseRecord.objects.filter(
+        farmer__user=request.user
+    ).order_by('-detection_date')[:5]
+    
+    # Yield statistics
+    yield_stats = PredictionResult.objects.filter(
+        farmer__user=request.user
+    ).aggregate(
+        avg_yield=Avg('predicted_yield'),
+        total_yield=Sum('predicted_yield'),
+        avg_current_value=Avg('total_current_value'),
+        total_current_value=Sum('total_current_value'),
+        total_future_value=Sum('total_future_value'),
+        total_profit_delta=Sum('profit_delta')
+    )
+    
+    # Get active price alerts
+    active_alerts = PriceAlert.objects.filter(
+        user=request.user,
+        is_active=True,
+        is_triggered=False
+    ).order_by('-created_at')[:5]
+    
+    # Get favorite crops
+    favorite_crops = FavoriteCrop.objects.filter(user=request.user)
+    
+    # Get unread notifications
+    unread_notifications = Notification.objects.filter(
+        user=request.user,
+        is_read=False
+    ).order_by('-created_at')[:5]
+    
+    # Chart data for crop distribution (JSON)
+    crop_chart_data = {
+        'labels': [item['crop'] for item in crop_stats],
+        'data': [item['count'] for item in crop_stats]
+    }
     
     context = {
         'user_farmers': user_farmers,
+        'user_predictions': user_predictions,
+        'total_submissions': total_submissions,
+        'total_predictions': total_predictions,
+        'crop_stats': crop_stats,
+        'recent_diseases': recent_diseases,
+        'yield_stats': yield_stats,
+        'active_alerts': active_alerts,
+        'favorite_crops': favorite_crops,
+        'unread_notifications': unread_notifications,
+        'crop_chart_json': json.dumps(crop_chart_data),
     }
     
     return render(request, 'forecast/user_profile.html', context)
@@ -906,25 +1586,563 @@ def data_analytics(request):
     return render(request, 'forecast/data_analytics.html', context)
 
 
-# ==============================================================================
-# Custom Error Handlers for Production
-# ==============================================================================
+# ========================================
+# Enhanced Admin Management Views
+# ========================================
 
-def custom_404(request, exception):
-    """Custom 404 error handler"""
-    return render(request, '404.html', status=404)
+# Admin User Management
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_users(request):
+    """Manage all users - view, search, filter"""
+    users = User.objects.all().order_by('-date_joined')
+    
+    # Search functionality
+    search_query = request.GET.get('search', '')
+    if search_query:
+        users = users.filter(
+            username__icontains=search_query
+        ) | users.filter(
+            email__icontains=search_query
+        )
+    
+    # Filter by staff status
+    filter_staff = request.GET.get('staff', '')
+    if filter_staff == 'true':
+        users = users.filter(is_staff=True)
+    elif filter_staff == 'false':
+        users = users.filter(is_staff=False)
+    
+    context = {
+        'users': users,
+        'search_query': search_query,
+        'total_users': User.objects.count(),
+        'total_admins': User.objects.filter(is_staff=True).count(),
+        'total_regular': User.objects.filter(is_staff=False).count(),
+    }
+    
+    return render(request, 'forecast/admin_users.html', context)
 
 
-def custom_500(request):
-    """Custom 500 error handler"""
-    return render(request, '500.html', status=500)
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_user_create(request):
+    """Create new user"""
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+        is_staff = request.POST.get('is_staff') == 'on'
+        is_superuser = request.POST.get('is_superuser') == 'on'
+        
+        if User.objects.filter(username=username).exists():
+            messages.error(request, 'Username already exists!')
+            return redirect('forecast:admin_user_create')
+        
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password
+        )
+        user.is_staff = is_staff
+        user.is_superuser = is_superuser
+        user.save()
+        
+        messages.success(request, f'User {username} created successfully!')
+        return redirect('forecast:admin_users')
+    
+    return render(request, 'forecast/admin_user_create.html')
 
 
-def custom_403(request, exception):
-    """Custom 403 error handler"""
-    return render(request, '403.html', status=403)
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_user_edit(request, user_id):
+    """Edit existing user"""
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        messages.error(request, 'User not found!')
+        return redirect('forecast:admin_users')
+    
+    if request.method == 'POST':
+        user.username = request.POST.get('username')
+        user.email = request.POST.get('email')
+        user.is_staff = request.POST.get('is_staff') == 'on'
+        user.is_superuser = request.POST.get('is_superuser') == 'on'
+        user.is_active = request.POST.get('is_active') == 'on'
+        
+        # Update password if provided
+        new_password = request.POST.get('password')
+        if new_password:
+            user.set_password(new_password)
+        
+        user.save()
+        messages.success(request, f'User {user.username} updated successfully!')
+        return redirect('forecast:admin_users')
+    
+    context = {'edit_user': user}
+    return render(request, 'forecast/admin_user_edit.html', context)
 
 
-def custom_400(request, exception):
-    """Custom 400 error handler"""
-    return render(request, '400.html', status=400)
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_user_delete(request, user_id):
+    """Delete user"""
+    try:
+        user = User.objects.get(id=user_id)
+        
+        # Prevent deleting yourself
+        if user.id == request.user.id:
+            messages.error(request, 'You cannot delete your own account!')
+            return redirect('forecast:admin_users')
+        
+        username = user.username
+        user.delete()
+        messages.success(request, f'User {username} deleted successfully!')
+    except User.DoesNotExist:
+        messages.error(request, 'User not found!')
+    
+    return redirect('forecast:admin_users')
+
+
+# Admin Farmer Management
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_farmers(request):
+    """Manage all farmer records"""
+    farmers = Farmer.objects.all().order_by('-created_at')
+    
+    # Search functionality
+    search_query = request.GET.get('search', '')
+    if search_query:
+        farmers = farmers.filter(
+            village__icontains=search_query
+        ) | farmers.filter(
+            crop__icontains=search_query
+        )
+    
+    # Filter by mandal
+    mandal_filter = request.GET.get('mandal', '')
+    if mandal_filter:
+        farmers = farmers.filter(mandal=mandal_filter)
+    
+    # Filter by crop
+    crop_filter = request.GET.get('crop', '')
+    if crop_filter:
+        farmers = farmers.filter(crop=crop_filter)
+    
+    context = {
+        'farmers': farmers,
+        'search_query': search_query,
+        'total_farmers': Farmer.objects.count(),
+        'mandals': ['machilipatnam', 'gudivada', 'vuyyur'],
+        'crops': ['paddy', 'mango', 'chillies', 'cotton', 'turmeric', 'sugarcane', 'banana'],
+    }
+    
+    return render(request, 'forecast/admin_farmers.html', context)
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_farmer_detail(request, farmer_id):
+    """View detailed information about a specific farmer (Admin view)"""
+    try:
+        farmer = Farmer.objects.get(id=farmer_id)
+    except Farmer.DoesNotExist:
+        messages.error(request, 'Farmer record not found!')
+        return redirect('forecast:admin_farmers')
+    
+    # Get related data
+    disease_record = DiseaseRecord.objects.filter(farmer=farmer).first()
+    prediction_result = PredictionResult.objects.filter(farmer=farmer).first()
+    
+    # Get weather data for farmer's mandal
+    weather_data = WeatherData.objects.filter(mandal=farmer.mandal).order_by('-date').first()
+    
+    # Get market prices for farmer's crop
+    market_prices = MarketPrice.objects.filter(crop=farmer.crop).order_by('-date')[:5]
+    
+    context = {
+        'farmer': farmer,
+        'disease_record': disease_record,
+        'prediction_result': prediction_result,
+        'weather_data': weather_data,
+        'market_prices': market_prices,
+    }
+    
+    return render(request, 'forecast/farmer_detail.html', context)
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_farmer_edit(request, farmer_id):
+    """Edit farmer record"""
+    try:
+        farmer = Farmer.objects.get(id=farmer_id)
+    except Farmer.DoesNotExist:
+        messages.error(request, 'Farmer record not found!')
+        return redirect('forecast:admin_farmers')
+    
+    if request.method == 'POST':
+        farmer.village = request.POST.get('village')
+        farmer.mandal = request.POST.get('mandal')
+        farmer.crop = request.POST.get('crop')
+        farmer.acres = float(request.POST.get('acres'))
+        farmer.sowing_date = request.POST.get('sowing_date')
+        farmer.cold_storage = request.POST.get('cold_storage') == 'on'
+        farmer.urgent_cash = request.POST.get('urgent_cash') == 'on'
+        farmer.save()
+        
+        messages.success(request, 'Farmer record updated successfully!')
+        return redirect('forecast:admin_farmers')
+    
+    context = {'farmer': farmer}
+    return render(request, 'forecast/admin_farmer_edit.html', context)
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_farmer_delete(request, farmer_id):
+    """Delete farmer record"""
+    try:
+        farmer = Farmer.objects.get(id=farmer_id)
+        village = farmer.village
+        farmer.delete()
+        messages.success(request, f'Farmer record from {village} deleted successfully!')
+    except Farmer.DoesNotExist:
+        messages.error(request, 'Farmer record not found!')
+    
+    return redirect('forecast:admin_farmers')
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_farmers_bulk_delete(request):
+    """Bulk delete farmer records"""
+    if request.method == 'POST':
+        farmer_ids = request.POST.getlist('farmer_ids')
+        if farmer_ids:
+            Farmer.objects.filter(id__in=farmer_ids).delete()
+            messages.success(request, f'{len(farmer_ids)} farmer records deleted successfully!')
+        else:
+            messages.warning(request, 'No farmers selected for deletion!')
+    
+    return redirect('forecast:admin_farmers')
+
+
+# Admin Weather Data Management
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_weather(request):
+    """Manage weather data"""
+    weather_data = WeatherData.objects.all().order_by('-date')[:100]  # Latest 100 records
+    
+    # Filter by mandal
+    mandal_filter = request.GET.get('mandal', '')
+    if mandal_filter:
+        weather_data = WeatherData.objects.filter(mandal=mandal_filter).order_by('-date')[:100]
+    
+    context = {
+        'weather_data': weather_data,
+        'total_weather': WeatherData.objects.count(),
+        'mandals': ['machilipatnam', 'gudivada', 'vuyyur'],
+    }
+    
+    return render(request, 'forecast/admin_weather.html', context)
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_weather_add(request):
+    """Add new weather data"""
+    if request.method == 'POST':
+        mandal = request.POST.get('mandal')
+        rainfall = float(request.POST.get('rainfall'))
+        temperature = float(request.POST.get('temperature'))
+        humidity = float(request.POST.get('humidity'))
+        date_str = request.POST.get('date')
+        
+        WeatherData.objects.create(
+            mandal=mandal,
+            rainfall=rainfall,
+            temperature=temperature,
+            humidity=humidity,
+            date=date_str
+        )
+        
+        messages.success(request, 'Weather data added successfully!')
+        return redirect('forecast:admin_weather')
+    
+    context = {
+        'mandals': ['machilipatnam', 'gudivada', 'vuyyur'],
+    }
+    return render(request, 'forecast/admin_weather_add.html', context)
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_weather_delete(request, weather_id):
+    """Delete weather record"""
+    try:
+        weather = WeatherData.objects.get(id=weather_id)
+        weather.delete()
+        messages.success(request, 'Weather record deleted successfully!')
+    except WeatherData.DoesNotExist:
+        messages.error(request, 'Weather record not found!')
+    
+    return redirect('forecast:admin_weather')
+
+
+# Admin Market Price Management
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_prices(request):
+    """Manage market prices"""
+    prices = MarketPrice.objects.all().order_by('-date')[:100]  # Latest 100 records
+    
+    # Filter by crop
+    crop_filter = request.GET.get('crop', '')
+    if crop_filter:
+        prices = MarketPrice.objects.filter(crop=crop_filter).order_by('-date')[:100]
+    
+    context = {
+        'prices': prices,
+        'total_prices': MarketPrice.objects.count(),
+        'crops': ['paddy', 'mango', 'chillies', 'cotton', 'turmeric', 'sugarcane', 'banana'],
+    }
+    
+    return render(request, 'forecast/admin_prices.html', context)
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_price_add(request):
+    """Add new market price"""
+    if request.method == 'POST':
+        crop = request.POST.get('crop')
+        region = request.POST.get('region')
+        price_per_quintal = float(request.POST.get('price_per_quintal'))
+        date_str = request.POST.get('date')
+        is_peak_season = request.POST.get('is_peak_season') == 'on'
+        
+        MarketPrice.objects.create(
+            crop=crop,
+            region=region,
+            price_per_quintal=price_per_quintal,
+            date=date_str,
+            is_peak_season=is_peak_season
+        )
+        
+        messages.success(request, 'Market price added successfully!')
+        return redirect('forecast:admin_prices')
+    
+    context = {
+        'crops': ['paddy', 'mango', 'chillies', 'cotton', 'turmeric', 'sugarcane', 'banana'],
+    }
+    return render(request, 'forecast/admin_price_add.html', context)
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_price_delete(request, price_id):
+    """Delete market price record"""
+    try:
+        price = MarketPrice.objects.get(id=price_id)
+        price.delete()
+        messages.success(request, 'Market price record deleted successfully!')
+    except MarketPrice.DoesNotExist:
+        messages.error(request, 'Market price record not found!')
+    
+    return redirect('forecast:admin_prices')
+
+
+# Export Functions
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_export_farmers(request):
+    """Export farmer data to CSV"""
+    import csv
+    from django.http import HttpResponse
+    
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="farmers_export.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['ID', 'Village', 'Mandal', 'Crop', 'Acres', 'Sowing Date', 
+                     'Cold Storage', 'Urgent Cash', 'Created At'])
+    
+    farmers = Farmer.objects.all()
+    for farmer in farmers:
+        writer.writerow([
+            farmer.id,
+            farmer.village,
+            farmer.get_mandal_display(),
+            farmer.get_crop_display(),
+            farmer.acres,
+            farmer.sowing_date,
+            'Yes' if farmer.cold_storage else 'No',
+            'Yes' if farmer.urgent_cash else 'No',
+            farmer.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        ])
+    
+    return response
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_export_weather(request):
+    """Export weather data to CSV"""
+    import csv
+    from django.http import HttpResponse
+    
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="weather_export.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['ID', 'Mandal', 'Rainfall (mm)', 'Temperature (°C)', 
+                     'Humidity (%)', 'Date'])
+    
+    weather_data = WeatherData.objects.all()
+    for weather in weather_data:
+        writer.writerow([
+            weather.id,
+            weather.get_mandal_display(),
+            weather.rainfall,
+            weather.temperature,
+            weather.humidity,
+            weather.date
+        ])
+    
+    return response
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_export_prices(request):
+    """Export market prices to CSV"""
+    import csv
+    from django.http import HttpResponse
+    
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="prices_export.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['ID', 'Crop', 'Region', 'Price per Quintal (₹)', 
+                     'Peak Season', 'Date'])
+    
+    prices = MarketPrice.objects.all()
+    for price in prices:
+        writer.writerow([
+            price.id,
+            price.get_crop_display(),
+            price.region,
+            price.price_per_quintal,
+            'Yes' if price.is_peak_season else 'No',
+            price.date
+        ])
+    
+    return response
+
+
+# Admin Logs Viewer
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_logs(request):
+    """View application logs"""
+    import os
+    from pathlib import Path
+    
+    log_file = Path(__file__).resolve().parent.parent / 'logs' / 'django.log'
+    logs = []
+    
+    if log_file.exists():
+        try:
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+                # Get last 200 lines
+                logs = lines[-200:]
+                logs.reverse()
+                # Strip whitespace from each line
+                logs = [line.strip() for line in logs if line.strip()]
+        except Exception as e:
+            messages.error(request, f'Error reading log file: {str(e)}')
+    else:
+        messages.info(request, 'No log file found yet.')
+    
+    context = {
+        'logs': logs,
+        'log_file_path': str(log_file),
+    }
+    
+    return render(request, 'forecast/admin_logs.html', context)
+
+
+# Admin Settings
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_settings(request):
+    """Admin settings and configuration"""
+    from django.conf import settings
+    import sys
+    import django
+    
+    if request.method == 'POST':
+        # Handle settings update
+        messages.info(request, 'Settings update feature coming soon!')
+    
+    context = {
+        'debug_mode': settings.DEBUG,
+        'time_zone': settings.TIME_ZONE,
+        'language_code': settings.LANGUAGE_CODE,
+        'total_users': User.objects.count(),
+        'total_farmers': Farmer.objects.count(),
+        'total_predictions': PredictionResult.objects.count(),
+        'total_weather': WeatherData.objects.count(),
+        'total_prices': MarketPrice.objects.count(),
+        'total_diseases': DiseaseRecord.objects.count(),
+        'django_version': django.get_version(),
+        'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        'db_engine': settings.DATABASES['default']['ENGINE'].split('.')[-1].upper(),
+        'db_name': settings.DATABASES['default']['NAME'],
+        'media_root': settings.MEDIA_URL,
+        'static_root': settings.STATIC_URL,
+    }
+    
+    return render(request, 'forecast/admin_settings.html', context)
+
+
+@user_passes_test(is_admin, login_url='/af-admin/login/')
+def admin_create_notification(request):
+    """Create and send notifications to users"""
+    from .models import Notification
+    
+    if request.method == 'POST':
+        notification_type = request.POST.get('notification_type')
+        title = request.POST.get('title')
+        message = request.POST.get('message')
+        send_to = request.POST.get('send_to')  # 'all', 'active', 'staff', 'specific'
+        specific_user_ids = request.POST.getlist('user_ids')
+        
+        if title and message and notification_type:
+            # Determine recipients
+            if send_to == 'all':
+                users = User.objects.all()
+            elif send_to == 'active':
+                users = User.objects.filter(is_active=True)
+            elif send_to == 'staff':
+                users = User.objects.filter(is_staff=True)
+            elif send_to == 'specific' and specific_user_ids:
+                users = User.objects.filter(id__in=specific_user_ids)
+            else:
+                users = User.objects.none()
+            
+            # Create notifications for selected users
+            notifications_created = 0
+            for user in users:
+                Notification.objects.create(
+                    user=user,
+                    notification_type=notification_type,
+                    title=title,
+                    message=message
+                )
+                notifications_created += 1
+            
+            messages.success(request, f'Successfully created {notifications_created} notification(s)!')
+            return redirect('forecast:admin_dashboard')
+        else:
+            messages.error(request, 'Please fill in all required fields')
+    
+    # GET request - show form
+    all_users = User.objects.all().order_by('username')
+    
+    context = {
+        'all_users': all_users,
+        'notification_types': [
+            ('price_alert', 'Price Alert'),
+            ('recommendation', 'Recommendation'),
+            ('weather_update', 'Weather Update'),
+            ('system', 'System Notification')
+        ]
+    }
+    
+    return render(request, 'forecast/admin_create_notification.html', context)

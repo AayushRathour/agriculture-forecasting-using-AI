@@ -1,16 +1,36 @@
-# Replit Configuration for Bhoomi Puthra Django Application
-run = "pip install -r requirements.txt && python manage.py migrate && python manage.py collectstatic --noinput && python manage.py runserver 0.0.0.0:8000"
+modules = ["python-3.11"]
 
-# Entry point
-entrypoint = "manage.py"
-
-# Language configuration
-[languages.python3]
-pattern = "**/*.py"
-
-[languages.python3.languageServer]
-start = "pylsp"
-
-# Nix configuration - simple Python only
 [nix]
 channel = "stable-24_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start Django Server"
+
+[[workflows.workflow]]
+name = "Start Django Server"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+waitForPort = 8000
+
+[deployment]
+run = ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 8000
+externalPort = 80

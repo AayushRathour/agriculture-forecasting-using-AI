@@ -43,34 +43,34 @@
     
     .feature-card {
         background: white;
-        border-radius: 15px;
-        padding: 40px 30px;
+        border-radius: 10px;
+        padding: 20px;
         text-align: center;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
-        transition: transform 0.3s, box-shadow 0.3s;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        transition: transform 0.2s, box-shadow 0.2s;
     }
     
     .feature-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+        transform: translateY(-3px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     }
     
     .feature-card .icon {
-        font-size: 4rem;
-        margin-bottom: 20px;
+        font-size: 2.5rem;
+        margin-bottom: 10px;
     }
     
     .feature-card h3 {
         color: #2d7a5e;
-        font-size: 1.5rem;
+        font-size: 1.1rem;
         font-weight: 600;
-        margin-bottom: 15px;
+        margin-bottom: 8px;
     }
     
     .feature-card p {
         color: #6c757d;
-        font-size: 1rem;
-        line-height: 1.6;
+        font-size: 0.85rem;
+        line-height: 1.4;
     }
     
     .cta-section {
@@ -103,6 +103,86 @@
         font-size: 1.5rem;
         font-weight: bold;
     }
+    
+    .quick-actions {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 30px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    
+    .quick-actions h3 {
+        color: #2d7a5e;
+        font-size: 1.3rem;
+        margin-bottom: 15px;
+        text-align: center;
+    }
+    
+    .actions-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 10px;
+    }
+    
+    .action-btn {
+        background: linear-gradient(135deg, #2d7a5e 0%, #3d9970 100%);
+        color: white;
+        padding: 12px 15px;
+        border-radius: 8px;
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.2s;
+        border: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+    
+    .action-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(45, 122, 94, 0.3);
+        color: white;
+    }
+    
+    .action-btn i {
+        font-size: 1.1rem;
+    }
+    
+    .stats-section {
+        background: linear-gradient(135deg, #2d7a5e 0%, #3d9970 100%);
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 30px;
+        color: white;
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+    
+    .stat-card {
+        text-align: center;
+        background: rgba(255, 255, 255, 0.1);
+        padding: 15px;
+        border-radius: 8px;
+    }
+    
+    .stat-card .number {
+        font-size: 1.8rem;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    
+    .stat-card .label {
+        font-size: 0.8rem;
+        opacity: 0.9;
+    }
 </style>
 {% endblock %}
 
@@ -118,6 +198,68 @@
             Get intelligent insights on crop health, yield prediction, and best selling time for maximum profit
         </p>
     </div>
+    
+    {% if user.is_authenticated %}
+    <!-- Quick Stats for Logged-in Users -->
+    <div class="stats-section">
+        <h3 style="margin: 0 0 10px 0; text-align: center;">Your Farming Dashboard</h3>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="number">{{ total_submissions|default:0 }}</div>
+                <div class="label">Total Submissions</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ active_alerts|default:0 }}</div>
+                <div class="label">Active Alerts</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ favorite_crops_count|default:0 }}</div>
+                <div class="label">Favorite Crops</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ unread_notifications|default:0 }}</div>
+                <div class="label">New Notifications</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="quick-actions">
+        <h3>🚀 Quick Actions - AI/ML Tools</h3>
+        <div class="actions-grid">
+            <a href="{% url 'forecast:farmer_input' %}" class="action-btn">
+                <i class="bi bi-cloud-upload"></i>
+                <span>New Forecast</span>
+            </a>
+            <a href="{% url 'forecast:user_profile' %}" class="action-btn">
+                <i class="bi bi-person-circle"></i>
+                <span>My Dashboard</span>
+            </a>
+            <a href="{% url 'forecast:crop_comparison' %}" class="action-btn">
+                <i class="bi bi-bar-chart"></i>
+                <span>Compare Crops</span>
+            </a>
+            <a href="{% url 'forecast:historical_analysis' %}" class="action-btn">
+                <i class="bi bi-graph-up"></i>
+                <span>History & Trends</span>
+            </a>
+            {% if user.is_staff %}
+            <a href="{% url 'forecast:price_alerts' %}" class="action-btn">
+                <i class="bi bi-bell"></i>
+                <span>Price Alerts</span>
+            </a>
+            {% endif %}
+            <a href="{% url 'forecast:crop_recommendations' %}" class="action-btn">
+                <i class="bi bi-lightbulb"></i>
+                <span>AI Recommendations</span>
+            </a>
+            <a href="{% url 'forecast:export_data' format='csv' %}" class="action-btn">
+                <i class="bi bi-download"></i>
+                <span>Export Data</span>
+            </a>
+        </div>
+    </div>
+    {% endif %}
 
     <div class="features-grid">
         <div class="feature-card">
@@ -173,13 +315,56 @@
                 Tailored for Machilipatnam, Gudivada, Vuyyur regions
             </p>
         </div>
+        
+        <div class="feature-card">
+            <div class="icon">🤖</div>
+            <h3>AI-Powered Insights</h3>
+            <p>Machine Learning models trained on historical data for accurate predictions</p>
+        </div>
+        
+        <div class="feature-card">
+            <div class="icon">📈</div>
+            <h3>Crop Comparison</h3>
+            <p>Compare performance across different crops and seasons with visual analytics</p>
+        </div>
+        
+        <div class="feature-card">
+            <div class="icon">🔔</div>
+            <h3>Price Alerts</h3>
+            <p>Get notified when market prices reach your target levels</p>
+        </div>
+        
+        <div class="feature-card">
+            <div class="icon">📊</div>
+            <h3>Historical Analysis</h3>
+            <p>Track your farming trends over time with detailed charts and statistics</p>
+        </div>
+        
+        <div class="feature-card">
+            <div class="icon">💡</div>
+            <h3>Smart Recommendations</h3>
+            <p>AI-driven crop suggestions based on your farming history and patterns</p>
+        </div>
+        
+        <div class="feature-card">
+            <div class="icon">📥</div>
+            <h3>Data Export</h3>
+            <p>Download your farming data in CSV or PDF format for offline analysis</p>
+        </div>
     </div>
 
     <div class="cta-section">
-        <a href="{% url 'forecast:farmer_input' %}" class="btn-primary">
-            <span data-en="Start Forecasting" data-te="అంచనా ప్రారంభించండి">Start Forecasting</span>
-            <span class="arrow">→</span>
-        </a>
+        {% if user.is_authenticated %}
+            <a href="{% url 'forecast:farmer_input' %}" class="btn-primary">
+                <span data-en="Start New Forecast" data-te="కొత్త అంచనా ప్రారంభించండి">Start New Forecast</span>
+                <span class="arrow">→</span>
+            </a>
+        {% else %}
+            <a href="{% url 'forecast:user_register' %}" class="btn-primary">
+                <span>Get Started - Register Now</span>
+                <span class="arrow">→</span>
+            </a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

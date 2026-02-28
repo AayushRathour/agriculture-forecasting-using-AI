@@ -25,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY', "django-insecure-b9^(#1oeru%a)*dgr9aphvztfzpsb4pq5$qhgj%8$@=pj^mwpe")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+DEBUG = os.environ.get('DEBUG', 'True') != 'False'
 
 # Add your domain names and IP addresses here
 # For Replit, the REPL_SLUG and REPL_OWNER are automatically set
@@ -75,6 +75,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "forecast.middleware.notification_context",  # Add notification count to all templates
             ],
         },
     },

@@ -74,6 +74,26 @@
             gap: 5px;
         }
         
+        /* Notification Bell */
+        .notification-icon {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -8px;
+            background: #e74c3c;
+            color: white;
+            border-radius: 10px;
+            padding: 2px 6px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            min-width: 18px;
+            text-align: center;
+        }
+        
         /* Main Content */
         .main-content {
             flex: 1;
@@ -226,6 +246,14 @@
                         {% endif %}
                     </ul>
                     <div class="header-info ms-3">
+                        {% if user.is_authenticated %}
+                        <a href="{% url 'forecast:notifications' %}" class="info-badge" style="text-decoration: none; color: white; position: relative;">
+                            <i class="bi bi-bell" style="font-size: 1.2rem;"></i>
+                            {% if unread_notifications_count > 0 %}
+                                <span class="notification-badge">{{ unread_notifications_count }}</span>
+                            {% endif %}
+                        </a>
+                        {% endif %}
                         <div class="info-badge">
                             <i class="bi bi-geo-alt"></i>
                             <span>Krishna District</span>
@@ -270,9 +298,10 @@
                     <ul>
                         <li><a href="{% url 'forecast:home' %}"><i class="bi bi-chevron-right"></i> Home</a></li>
                         <li><a href="{% url 'forecast:farmer_input' %}"><i class="bi bi-chevron-right"></i> Farmer Input</a></li>
-                        <li><a href="{% url 'forecast:data_analytics' %}"><i class="bi bi-chevron-right"></i> Data Analytics</a></li>
-                        <li><a href="{% url 'forecast:admin_dashboard' %}"><i class="bi bi-chevron-right"></i> Admin Panel</a></li>
-                        <li><a href="{% url 'forecast:user_profile' %}"><i class="bi bi-chevron-right"></i> My Profile</a></li>
+                        <li><a href="{% url 'admin:index' %}"><i class="bi bi-chevron-right"></i> Admin Panel</a></li>
+                        <li><a href="#"><i class="bi bi-chevron-right"></i> Weather Data</a></li>
+                        <li><a href="#"><i class="bi bi-chevron-right"></i> Market Prices</a></li>
+                        <li><a href="#"><i class="bi bi-chevron-right"></i> Help & Support</a></li>
                     </ul>
                 </div>
 

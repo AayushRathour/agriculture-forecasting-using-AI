@@ -1,0 +1,123 @@
+{% extends 'forecast/base.html' %}
+
+{% block title %}Edit Farmer - Admin Panel{% endblock %}
+
+{% block extra_css %}
+<style>
+    .main-content {
+        background: #f0f4f8;
+        padding: 40px 15px;
+    }
+    
+    .admin-container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 30px 20px;
+    }
+    
+    .page-header {
+        background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 15px;
+        margin-bottom: 30px;
+    }
+    
+    .form-section {
+        background: white;
+        padding: 40px;
+        border-radius: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="page-header">
+        <h1><i class="bi bi-pencil-fill"></i> Edit Farmer #{{ farmer.id }}</h1>
+        <p style="margin: 5px 0 0 0; opacity: 0.9;">{{ farmer.village }}, {{ farmer.mandal }}</p>
+    </div>
+
+    <div class="form-section">
+        <form method="post">
+            {% csrf_token %}
+            
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label"><strong>Mandal</strong></label>
+                    <input type="text" name="mandal" class="form-control" value="{{ farmer.mandal }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label"><strong>Village</strong></label>
+                    <input type="text" name="village" class="form-control" value="{{ farmer.village }}" required>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label"><strong>Crop</strong></label>
+                    <select name="crop" class="form-select" required>
+                        <option value="rice" {% if farmer.crop == 'rice' %}selected{% endif %}>Rice</option>
+                        <option value="wheat" {% if farmer.crop == 'wheat' %}selected{% endif %}>Wheat</option>
+                        <option value="maize" {% if farmer.crop == 'maize' %}selected{% endif %}>Maize</option>
+                        <option value="cotton" {% if farmer.crop == 'cotton' %}selected{% endif %}>Cotton</option>
+                        <option value="sugarcane" {% if farmer.crop == 'sugarcane' %}selected{% endif %}>Sugarcane</option>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label"><strong>Acres</strong></label>
+                    <input type="number" name="acres" class="form-control" value="{{ farmer.acres }}" step="0.01" required>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label"><strong>Sowing Date</strong></label>
+                    <input type="date" name="sowing_date" class="form-control" value="{{ farmer.sowing_date|date:'Y-m-d' }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label"><strong>Crop Image</strong></label>
+                    <input type="file" name="crop_image" class="form-control" accept="image/*">
+                    {% if farmer.crop_image %}
+                    <small class="text-muted">Current: {{ farmer.crop_image.name }}</small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input type="checkbox" name="cold_storage" class="form-check-input" id="cold_storage" 
+                               {% if farmer.cold_storage %}checked{% endif %}>
+                        <label class="form-check-label" for="cold_storage">Has Cold Storage</label>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input type="checkbox" name="urgent_cash" class="form-check-input" id="urgent_cash"
+                               {% if farmer.urgent_cash %}checked{% endif %}>
+                        <label class="form-check-label" for="urgent_cash">Needs Urgent Cash</label>
+                    </div>
+                </div>
+            </div>
+
+            <hr>
+
+            <div style="display: flex; gap: 10px;">
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-check-circle"></i> Update Farmer
+                </button>
+                <a href="{% url 'forecast:admin_farmers' %}" class="btn btn-secondary">
+                    <i class="bi bi-x-circle"></i> Cancel
+                </a>
+                <a href="{% url 'forecast:admin_farmer_delete' farmer.id %}" 
+                   class="btn btn-danger ms-auto" 
+                   onclick="return confirm('Delete this farmer?');">
+                    <i class="bi bi-trash"></i> Delete
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

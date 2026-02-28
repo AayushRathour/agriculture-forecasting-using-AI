@@ -4,6 +4,7 @@ These models store farmer data, crop health, weather, market prices, and predict
 """
 
 from django.db import models
+from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 
@@ -53,6 +54,17 @@ class Farmer(models.Model):
     Stores farmer's basic information and crop details
     This is the primary input from the farmer
     """
+    # User Information (optional - for tracking submissions)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='farmer_records',
+        verbose_name="User",
+        help_text="User who created this record"
+    )
+    
     # Location Information
     mandal = models.CharField(
         max_length=50,
@@ -107,6 +119,11 @@ class Farmer(models.Model):
         verbose_name = "Farmer Record"
         verbose_name_plural = "Farmer Records"
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['mandal', 'crop']),
+            models.Index(fields=['user', '-created_at']),
+        ]
     
     def __str__(self):
         return f"{self.village} - {self.get_crop_display()} ({self.acres} acres)"
@@ -174,6 +191,10 @@ class DiseaseRecord(models.Model):
         verbose_name = "Disease Record"
         verbose_name_plural = "Disease Records"
         ordering = ['-detection_date']
+        indexes = [
+            models.Index(fields=['-detection_date']),
+            models.Index(fields=['severity']),
+        ]
     
     def __str__(self):
         return f"{self.disease_name} - {self.get_severity_display()} ({self.farmer.crop})"
@@ -221,6 +242,9 @@ class WeatherData(models.Model):
         verbose_name_plural = "Weather Data"
         ordering = ['-date']
         unique_together = ['mandal', 'date']  # One record per mandal per day
+        indexes = [
+            models.Index(fields=['mandal', '-date']),
+        ]
     
     def __str__(self):
         return f"{self.get_mandal_display()} - {self.date} (Temp: {self.temperature}°C)"
@@ -269,6 +293,10 @@ class MarketPrice(models.Model):
         verbose_name_plural = "Market Prices"
         ordering = ['-date']
         unique_together = ['crop', 'region', 'date']  # One price per crop per region per day
+        indexes = [
+            models.Index(fields=['crop', '-date']),
+            models.Index(fields=['region', '-date']),
+        ]
     
     def __str__(self):
         return f"{self.get_crop_display()} - {self.region} - ₹{self.price_per_quintal}/Q ({self.date})"
@@ -367,6 +395,10 @@ class PredictionResult(models.Model):
         verbose_name = "Prediction Result"
         verbose_name_plural = "Prediction Results"
         ordering = ['-generated_at']
+        indexes = [
+            models.Index(fields=['-generated_at']),
+            models.Index(fields=['recommendation']),
+        ]
     
     def __str__(self):
         return f"Prediction for {self.farmer.village} - {self.farmer.get_crop_display()} ({self.get_recommendation_display()})"
@@ -376,3 +408,160 @@ class PredictionResult(models.Model):
         if self.total_current_value > 0:
             return round((self.profit_delta / self.total_current_value) * 100, 2)
         return 0
+
+
+# ========================================
+# Model 6: Price Alert (User Notifications)
+# ========================================
+
+class PriceAlert(models.Model):
+    """
+    Stores user's price alerts for crops
+    User gets notified when price reaches target
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='price_alerts',
+        verbose_name="User"
+    )
+    
+    crop = models.CharField(
+        max_length=50,
+        choices=CROP_CHOICES,
+        verbose_name="Crop"
+    )
+    
+    target_price = models.FloatField(
+        validators=[MinValueValidator(0)],
+        verbose_name="Target Price (₹/Q)",
+        help_text="Alert when price reaches this level"
+    )
+    
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Active",
+        help_text="Is this alert currently active?"
+    )
+    
+    is_triggered = models.BooleanField(
+        default=False,
+        verbose_name="Triggered",
+        help_text="Has this alert been triggered?"
+    )
+    
+    triggered_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Triggered At"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = "Price Alert"
+        verbose_name_plural = "Price Alerts"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['crop', 'is_active']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.get_crop_display()} @ ₹{self.target_price}/Q"
+
+
+# ========================================
+# Model 7: Favorite Crop (User Bookmarks)
+# ========================================
+
+class FavoriteCrop(models.Model):
+    """
+    Stores user's favorite crops for quick access
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='favorite_crops',
+        verbose_name="User"
+    )
+    
+    crop = models.CharField(
+        max_length=50,
+        choices=CROP_CHOICES,
+        verbose_name="Crop"
+    )
+    
+    added_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = "Favorite Crop"
+        verbose_name_plural = "Favorite Crops"
+        unique_together = ['user', 'crop']  # One favorite per user per crop
+        ordering = ['crop']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.get_crop_display()}"
+
+
+# ========================================
+# Model 8: Notification (User Messages)
+# ========================================
+
+class Notification(models.Model):
+    """
+    Stores notifications for users
+    """
+    NOTIFICATION_TYPES = [
+        ('price_alert', 'Price Alert'),
+        ('recommendation', 'Crop Recommendation'),
+        ('weather_update', 'Weather Update'),
+        ('system', 'System Notification'),
+    ]
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        verbose_name="User"
+    )
+    
+    notification_type = models.CharField(
+        max_length=20,
+        choices=NOTIFICATION_TYPES,
+        default='system',
+        verbose_name="Type"
+    )
+    
+    title = models.CharField(
+        max_length=200,
+        verbose_name="Title"
+    )
+    
+    message = models.TextField(
+        verbose_name="Message"
+    )
+    
+    is_read = models.BooleanField(
+        default=False,
+        verbose_name="Read",
+        help_text="Has user read this notification?"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Read At"
+    )
+    
+    class Meta:
+        verbose_name = "Notification"
+        verbose_name_plural = "Notifications"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read', '-created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.title} ({'✓' if self.is_read else '✗'})"

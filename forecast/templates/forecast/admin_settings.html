@@ -1,0 +1,182 @@
+{% extends 'forecast/base.html' %}
+
+{% block title %}Admin Settings - Admin Panel{% endblock %}
+
+{% block extra_css %}
+<style>
+    .main-content { background: #f0f4f8; padding: 40px 15px; }
+    .admin-container { max-width: 1200px; margin: 0 auto; padding: 30px 20px; }
+    .page-header {
+        background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 15px;
+        margin-bottom: 30px;
+    }
+    .page-header h1 { margin: 0; font-size: 2rem; }
+    .settings-section {
+        background: white;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+    }
+    .settings-section h3 {
+        margin: 0 0 20px 0;
+        color: #333;
+        font-size: 1.3rem;
+        border-bottom: 2px solid #f0f0f0;
+        padding-bottom: 15px;
+    }
+    .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+    }
+    .stat-box {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+    }
+    .stat-box h4 {
+        margin: 0;
+        font-size: 2rem;
+        color: #667eea;
+    }
+    .stat-box p {
+        margin: 5px 0 0 0;
+        color: #666;
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="page-header">
+        <h1><i class="bi bi-gear-fill"></i> Admin Settings</h1>
+        <p style="margin: 5px 0 0 0; opacity: 0.9;">System configuration and settings</p>
+    </div>
+
+    <!-- System Statistics -->
+    <div class="settings-section">
+        <h3><i class="bi bi-bar-chart-fill"></i> System Statistics</h3>
+        <div class="stat-grid">
+            <div class="stat-box">
+                <h4>{{ total_users }}</h4>
+                <p>Total Users</p>
+            </div>
+            <div class="stat-box">
+                <h4>{{ total_farmers }}</h4>
+                <p>Farmer Submissions</p>
+            </div>
+            <div class="stat-box">
+                <h4>{{ total_weather }}</h4>
+                <p>Weather Records</p>
+            </div>
+            <div class="stat-box">
+                <h4>{{ total_prices }}</h4>
+                <p>Market Prices</p>
+            </div>
+            <div class="stat-box">
+                <h4>{{ total_predictions }}</h4>
+                <p>Predictions Generated</p>
+            </div>
+            <div class="stat-box">
+                <h4>{{ total_diseases }}</h4>
+                <p>Disease Records</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Database Information -->
+    <div class="settings-section">
+        <h3><i class="bi bi-database-fill"></i> Database Information</h3>
+        <table class="table">
+            <tbody>
+                <tr>
+                    <td><strong>Database Engine</strong></td>
+                    <td>{{ db_engine|default:"SQLite" }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Database Name</strong></td>
+                    <td>{{ db_name|default:"db.sqlite3" }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Total Records</strong></td>
+                    <td>{{ total_users|add:total_farmers|add:total_weather|add:total_prices|add:total_predictions|add:total_diseases }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Application Settings -->
+    <div class="settings-section">
+        <h3><i class="bi bi-sliders"></i> Application Settings</h3>
+        <table class="table">
+            <tbody>
+                <tr>
+                    <td><strong>Django Version</strong></td>
+                    <td>{{ django_version|default:"4.2+" }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Python Version</strong></td>
+                    <td>{{ python_version|default:"3.x" }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Debug Mode</strong></td>
+                    <td>
+                        {% if debug_mode %}
+                            <span class="badge bg-warning text-dark">Enabled</span>
+                        {% else %}
+                            <span class="badge bg-success">Disabled</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>Media Files</strong></td>
+                    <td>{{ media_root|default:"/media/" }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Static Files</strong></td>
+                    <td>{{ static_root|default:"/static/" }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="settings-section">
+        <h3><i class="bi bi-lightning-fill"></i> Quick Actions</h3>
+        <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+            <a href="{% url 'forecast:admin_users' %}" class="btn btn-primary">
+                <i class="bi bi-people-fill"></i> Manage Users
+            </a>
+            <a href="{% url 'forecast:admin_farmers' %}" class="btn btn-success">
+                <i class="bi bi-person-badge"></i> Manage Farmers
+            </a>
+            <a href="{% url 'forecast:admin_weather' %}" class="btn btn-info">
+                <i class="bi bi-cloud-rain"></i> Weather Data
+            </a>
+            <a href="{% url 'forecast:admin_prices' %}" class="btn btn-warning">
+                <i class="bi bi-cash-stack"></i> Market Prices
+            </a>
+            <a href="{% url 'forecast:admin_logs' %}" class="btn btn-secondary">
+                <i class="bi bi-journal-text"></i> View Logs
+            </a>
+            <a href="{% url 'forecast:data_analytics' %}" class="btn btn-dark">
+                <i class="bi bi-graph-up"></i> Analytics
+            </a>
+        </div>
+    </div>
+
+    <!-- Back Button -->
+    <div style="text-align: center; margin-top: 30px;">
+        <a href="{% url 'forecast:admin_dashboard' %}" class="btn btn-lg btn-outline-primary">
+            <i class="bi bi-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}

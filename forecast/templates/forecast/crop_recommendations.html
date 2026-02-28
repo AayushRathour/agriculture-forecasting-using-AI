@@ -1,0 +1,210 @@
+{% extends 'forecast/base.html' %}
+
+{% block title %}AI Crop Recommendations - Bhoomi Puthra{% endblock %}
+
+{% block extra_css %}
+<style>
+    .recommendations-container {
+        max-width: 1200px;
+        margin: 15px auto;
+        padding: 10px 15px;
+    }
+    
+    .page-header {
+        background: linear-gradient(135deg, #2d7a5e 0%, #3d9970 100%);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        text-align: center;
+    }
+    
+    .page-header h2 {
+        margin: 0;
+        font-size: 1.4rem;
+        font-weight: 600;
+    }
+    
+    .page-header p {
+        margin: 3px 0 0 0;
+        font-size: 0.85rem;
+        opacity: 0.95;
+    }
+    
+    .section-title {
+        color: #2d7a5e;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 12px;
+        padding-left: 5px;
+        border-left: 3px solid #2d7a5e;
+    }
+    
+    .recommendation-card {
+        background: white;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        margin-bottom: 10px;
+        border-left: 3px solid #2d7a5e;
+        transition: all 0.2s;
+    }
+    
+    .recommendation-card:hover {
+        transform: translateX(3px);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    }
+    
+    .recommendation-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .recommendation-title {
+        color: #2d7a5e;
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .confidence-badge {
+        font-size: 0.75rem;
+        padding: 4px 10px;
+        font-weight: 600;
+    }
+    
+    .stats-section {
+        background: white;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        margin-bottom: 15px;
+    }
+    
+    .stats-section h4 {
+        color: #2d7a5e;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .stat-box {
+        text-align: center;
+        padding: 12px;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 6px;
+        margin-bottom: 8px;
+        border: 1px solid #dee2e6;
+    }
+    
+    .stat-box h3 {
+        color: #2d7a5e;
+        font-size: 1.1rem;
+        margin: 0 0 5px 0;
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+    
+    .stat-box p {
+        color: #6c757d;
+        margin: 2px 0;
+        font-size: 0.8rem;
+    }
+    
+    .stat-box .profit-value {
+        color: #28a745;
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="recommendations-container">
+    <div class="page-header">
+        <h2><i class="bi bi-lightbulb-fill"></i> AI-Powered Crop Recommendations</h2>
+        <p>Smart suggestions based on your farming history and patterns</p>
+    </div>
+    
+    <div class="row">
+        <!-- Left Column: Recommendations -->
+        <div class="col-md-8">
+            <h4 class="section-title"><i class="bi bi-robot"></i> Personalized Recommendations</h4>
+            
+            {% if recommendations %}
+                {% for rec in recommendations %}
+                <div class="recommendation-card">
+                    <div class="recommendation-header">
+                        <h4 class="recommendation-title">
+                            <i class="bi bi-check-circle-fill text-success"></i> 
+                            {{ rec.title }}
+                        </h4>
+                        <span class="badge bg-success confidence-badge">
+                            {{ rec.confidence }}% Confidence
+                        </span>
+                    </div>
+                    <p style="color: #6c757d; font-size: 0.85rem; margin: 0;">
+                        <i class="bi bi-info-circle"></i> {{ rec.reason }}
+                    </p>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info text-center">
+                    <i class="bi bi-lightbulb" style="font-size: 2.5rem; opacity: 0.5;"></i>
+                    <h5 class="mt-2">Building Your Profile</h5>
+                    <p class="mb-2" style="font-size: 0.9rem;">Submit more crop forecasts to receive personalized AI recommendations</p>
+                    <a href="{% url 'forecast:farmer_input' %}" class="btn btn-success btn-sm">
+                        <i class="bi bi-plus-circle"></i> Create Forecast
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+        
+        <!-- Right Column: Stats -->
+        <div class="col-md-4">
+            <!-- Top Performing Crops -->
+            <div class="stats-section">
+                <h4><i class="bi bi-graph-up"></i> Top Performing Crops</h4>
+                {% if user_crops %}
+                    {% for crop in user_crops|slice:":3" %}
+                    <div class="stat-box">
+                        <h3>{{ crop.crop }}</h3>
+                        <p>{{ crop.count }} submission{{ crop.count|pluralize }}</p>
+                        <p class="profit-value">₹{{ crop.avg_profit|floatformat:2 }}</p>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center text-muted" style="font-size: 0.85rem; padding: 10px;">
+                        <i class="bi bi-info-circle"></i>
+                        <p class="mb-0">No data yet</p>
+                    </div>
+                {% endif %}
+            </div>
+            
+            <!-- Best Performing Mandals -->
+            {% if mandal_performance %}
+            <div class="stats-section">
+                <h4><i class="bi bi-geo-alt-fill"></i> Best Mandals</h4>
+                {% for mandal in mandal_performance|slice:":3" %}
+                <div class="stat-box">
+                    <h3>{{ mandal.mandal }}</h3>
+                    <p>Avg: {{ mandal.avg_yield|floatformat:2 }} Q</p>
+                    <p>{{ mandal.count }} submission{{ mandal.count|pluralize }}</p>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,242 @@
+{% extends 'forecast/base.html' %}
+
+{% block title %}Historical Analysis - Bhoomi Puthra{% endblock %}
+
+{% block extra_css %}
+<style>
+    .analysis-container {
+        max-width: 1200px;
+        margin: 20px auto;
+        padding: 15px;
+    }
+    
+    .page-header {
+        background: linear-gradient(135deg, #2d7a5e 0%, #3d9970 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    
+    .page-header h2 {
+        margin: 0;
+        font-size: 1.5rem;
+    }
+    
+    .page-header p {
+        margin: 5px 0 0 0;
+        font-size: 0.9rem;
+    }
+    
+    .chart-card {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        margin-bottom: 20px;
+    }
+    
+    .chart-card h4 {
+        color: #2d7a5e;
+        margin-bottom: 15px;
+        font-size: 1.1rem;
+    }
+    
+    .chart-wrapper {
+        position: relative;
+        height: 250px;
+        width: 100%;
+    }
+    
+    .chart-wrapper-small {
+        position: relative;
+        height: 200px;
+        width: 100%;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="analysis-container">
+    <div class="page-header">
+        <h2><i class="bi bi-clock-history"></i> Historical Farming Analysis</h2>
+        <p>Track your farming performance over time</p>
+    </div>
+    
+    {% if monthly_stats %}
+    <div class="row">
+        <div class="col-md-12">
+            <div class="chart-card">
+                <h4><i class="bi bi-calendar3"></i> Monthly Submissions</h4>
+                <div class="chart-wrapper-small">
+                    <canvas id="submissionsChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="chart-card">
+                <h4><i class="bi bi-geo-alt"></i> Land Area Trends</h4>
+                <div class="chart-wrapper">
+                    <canvas id="acresChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="chart-card">
+                <h4><i class="bi bi-graph-up-arrow"></i> Yield Trends</h4>
+                <div class="chart-wrapper">
+                    <canvas id="yieldChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info text-center">
+        <i class="bi bi-info-circle" style="font-size: 3rem;"></i>
+        <h4 class="mt-3">No Historical Data</h4>
+        <p>Submit more crop forecasts to see trends</p>
+        <a href="{% url 'forecast:farmer_input' %}" class="btn btn-success mt-3">
+            <i class="bi bi-plus-circle"></i> Create Forecast
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        try {
+            // Parse chart data
+            const chartDataRaw = '{{ chart_json|safe }}';
+            const chartData = JSON.parse(chartDataRaw);
+            
+            // Validate data
+            if (!chartData || !chartData.labels || chartData.labels.length === 0) {
+                console.warn('No chart data available');
+                return;
+            }
+            
+            // Common chart options
+            const commonOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            };
+            
+            // Submissions Chart
+            const submissionsCanvas = document.getElementById('submissionsChart');
+            if (submissionsCanvas) {
+                const submissionsCtx = submissionsCanvas.getContext('2d');
+                new Chart(submissionsCtx, {
+                    type: 'line',
+                    data: {
+                        labels: chartData.labels,
+                        datasets: [{
+                            label: 'Submissions',
+                            data: chartData.submissions,
+                            borderColor: 'rgba(45, 122, 94, 1)',
+                            backgroundColor: 'rgba(45, 122, 94, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: commonOptions
+                });
+            }
+            
+            // Acres Chart
+            const acresCanvas = document.getElementById('acresChart');
+            if (acresCanvas) {
+                const acresCtx = acresCanvas.getContext('2d');
+                new Chart(acresCtx, {
+                    type: 'line',
+                    data: {
+                        labels: chartData.labels,
+                        datasets: [{
+                            label: 'Total Acres',
+                            data: chartData.acres,
+                            borderColor: 'rgba(61, 153, 112, 1)',
+                            backgroundColor: 'rgba(61, 153, 112, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: {
+                        ...commonOptions,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toLocaleString() + ' acres';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Yield Chart
+            const yieldCanvas = document.getElementById('yieldChart');
+            if (yieldCanvas) {
+                const yieldCtx = yieldCanvas.getContext('2d');
+                new Chart(yieldCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: chartData.labels,
+                        datasets: [{
+                            label: 'Total Yield (Q)',
+                            data: chartData.yields,
+                            backgroundColor: 'rgba(46, 204, 113, 0.8)',
+                            borderColor: 'rgba(46, 204, 113, 1)',
+                            borderWidth: 2,
+                            borderRadius: 5
+                        }]
+                    },
+                    options: {
+                        ...commonOptions,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toLocaleString() + ' Q';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            
+        } catch (error) {
+            console.error('Error initializing charts:', error);
+        }
+    });
+</script>
+{% endblock %}

@@ -36,7 +36,8 @@ if os.environ.get('REPL_SLUG') and os.environ.get('REPL_OWNER'):
         f"{os.environ.get('REPL_SLUG')}-{os.environ.get('REPL_OWNER')}.repl.co",
     ]
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') + REPLIT_DOMAINS
+# Allow all Replit domains (including pike.replit.dev)
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') + REPLIT_DOMAINS + ['.replit.dev', '.pike.replit.dev']
 
 
 # Application definition
